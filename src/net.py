@@ -6,7 +6,7 @@ from layers import L2Norm, PriorBoxLayer
 
 class Net(torch.nn.Module):
 
-    def __init__(self, min_size, max_size, aspect_ratios, clip=False, use_cuda=True):
+    def __init__(self, min_size, max_size, aspect_ratios, clip=True, use_cuda=True):
         super(Net, self).__init__()
 
         self.min_size = min_size
@@ -55,8 +55,8 @@ class Net(torch.nn.Module):
         self.conv7_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
         self.conv8_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
         self.conv8_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.pool6_mbox_conf = nn.Conv2d(in_channels=512, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.pool6_mbox_loc = nn.Conv2d(in_channels=512, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+        self.pool6_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+        self.pool6_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
 
 
         self.conv4_3_norm_mbox_priorbox = PriorBoxLayer(min_size[0], max_size[0], aspect_ratios, clip, use_cuda)
@@ -65,6 +65,9 @@ class Net(torch.nn.Module):
         self.conv7_2_mbox_priorbox = PriorBoxLayer(min_size[3], max_size[3], aspect_ratios, clip, use_cuda)
         self.conv8_2_mbox_priorbox = PriorBoxLayer(min_size[4], max_size[4], aspect_ratios, clip, use_cuda)
         self.pool6_mbox_priorbox = PriorBoxLayer(min_size[5], max_size[5], aspect_ratios, clip, use_cuda)
+
+        if use_cuda:
+            self.cuda()
 
     def forward(self, input):
         batch_size = input.size(0)
@@ -122,31 +125,51 @@ class Net(torch.nn.Module):
         kW = conv8_2_relu.size(3)
         pool6 = F.avg_pool2d(conv8_2_relu, kernel_size=(kH, kW))    # 6th feature map
 
-        conv4_3_norm_mbox_conf_flat = self.conv4_3_norm_mbox_conf(conv4_3_norm).permute(0, 2, 3, 1).view(batch_size, -1)
-        fc7_mbox_conf_flat = self.fc7_mbox_conf(relu7).permute(0, 2, 3, 1).view(batch_size, -1)
-        conv6_2_mbox_conf_flat = self.conv6_2_mbox_conf(conv6_2_relu).permute(0, 2, 3, 1).view(batch_size, -1)
-        conv7_2_mbox_conf_flat = self.conv7_2_mbox_conf(conv7_2_relu).permute(0, 2, 3, 1).view(batch_size, -1)
-        conv8_2_mbox_conf_flat = self.conv8_2_mbox_conf(conv8_2_relu).permute(0, 2, 3, 1).view(batch_size, -1)
-        pool6_mbox_conf_flat = self.pool6_mbox_conf(pool6).permute(0, 2, 3, 1).view(batch_size, -1)
+        conv4_3_norm_mbox_conf_flat = self.conv4_3_norm_mbox_conf(conv4_3_norm).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        fc7_mbox_conf_flat = self.fc7_mbox_conf(relu7).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        conv6_2_mbox_conf_flat = self.conv6_2_mbox_conf(conv6_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        conv7_2_mbox_conf_flat = self.conv7_2_mbox_conf(conv7_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        conv8_2_mbox_conf_flat = self.conv8_2_mbox_conf(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        pool6_mbox_conf_flat = self.pool6_mbox_conf(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         mbox_conf = torch.cat([conv4_3_norm_mbox_conf_flat, fc7_mbox_conf_flat, conv6_2_mbox_conf_flat, conv7_2_mbox_conf_flat, conv8_2_mbox_conf_flat, pool6_mbox_conf_flat], 1)
-        mbox_conf_flatten = F.softmax(mbox_conf.view(0, -1, 2), dim=2).view(batch_size, -1)
+        mbox_conf_flatten = F.softmax(mbox_conf.view(batch_size, -1, 2), dim=2).view(batch_size, -1)
 
-        conv4_3_norm_mbox_loc_flat = self.conv4_3_norm_mbox_loc(conv4_3_norm).permute(0, 2, 3, 1).view(batch_size, -1)
-        fc7_mbox_loc_flat = self.fc7_mbox_loc(relu7).permute(0, 2, 3, 1).view(batch_size, -1)
-        conv6_2_mbox_loc_flat = self.conv6_2_mbox_loc(conv6_2_relu).permute(0, 2, 3, 1).view(batch_size, -1)
-        conv7_2_mbox_loc_flat = self.conv7_2_mbox_loc(conv7_2_relu).permute(0, 2, 3, 1).view(batch_size, -1)
-        conv8_2_mbox_loc_flat = self.conv8_2_mbox_loc(conv8_2_relu).permute(0, 2, 3, 1).view(batch_size, -1)
-        pool6_mbox_loc_flat = self.pool6_mbox_loc(pool6).permute(0, 2, 3, 1).view(batch_size, -1)
+        conv4_3_norm_mbox_loc_flat = self.conv4_3_norm_mbox_loc(conv4_3_norm).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        fc7_mbox_loc_flat = self.fc7_mbox_loc(relu7).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        conv6_2_mbox_loc_flat = self.conv6_2_mbox_loc(conv6_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        conv7_2_mbox_loc_flat = self.conv7_2_mbox_loc(conv7_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        conv8_2_mbox_loc_flat = self.conv8_2_mbox_loc(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        pool6_mbox_loc_flat = self.pool6_mbox_loc(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         mbox_loc = torch.cat([conv4_3_norm_mbox_loc_flat, fc7_mbox_loc_flat, conv6_2_mbox_loc_flat, conv7_2_mbox_loc_flat, conv8_2_mbox_loc_flat, pool6_mbox_loc_flat], 1)
-        mbox_loc_flatten = F.softmax(mbox_loc.view(0, -1, 2), dim=2).view(batch_size, -1)
+        mbox_loc_flatten = F.softmax(mbox_loc.view(batch_size, -1, 2), dim=2).view(batch_size, -1)
 
         priors = []
         priors.append(self.conv4_3_norm_mbox_priorbox(input, conv4_3_norm))
-        priors.append(self.fc7_mbox_priorbox(relu7))
-        priors.append(self.conv6_2_mbox_priorbox(conv6_2_relu))
-        priors.append(self.conv7_2_mbox_priorbox(conv7_2_relu))
-        priors.append(self.conv8_2_mbox_priorbox(conv8_2_relu))
-        priors.append(self.pool6_mbox_priorbox(pool6))
+        priors.append(self.fc7_mbox_priorbox(input, relu7))
+        priors.append(self.conv6_2_mbox_priorbox(input, conv6_2_relu))
+        priors.append(self.conv7_2_mbox_priorbox(input, conv7_2_relu))
+        priors.append(self.conv8_2_mbox_priorbox(input, conv8_2_relu))
+        priors.append(self.pool6_mbox_priorbox(input, pool6))
+        print(conv4_3_norm.size())
+        print(fc7.size())
+        print(conv6_2_relu.size())
+        print(conv7_2_relu.size())
+        print(conv8_2_relu.size())
+        print(pool6.size())
 
         return mbox_conf_flatten, mbox_loc_flatten, priors
 
+if __name__ == "__main__":
+    img_h = 300
+    img_w = 300
+    # 20% ~ 95% of image size
+    min_size = [30, 60, 114, 168, 222, 276] 
+    max_size = [None, 114, 167, 222, 276, 330]
+    aspect_ratios = [2, 3, 5, 7, 10]
+    net = Net(min_size, max_size, aspect_ratios)
+    input = torch.Tensor(1, 3, 300, 300).cuda()
+    output = net(input)
+    print(output[0].size())
+    print(output[1].size())
+    for i in range(6):
+        print(output[2][i].size())

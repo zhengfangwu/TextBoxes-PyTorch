@@ -56,8 +56,8 @@ class PriorBoxLayer(nn.Module):
         if self.priors == None:
 
             # center_coord
-            w = torch.arange(0, layer_width).view(1, -1).expand(layer_height, layer_width)
-            h = torch.arange(0, layer_height).view(-1, 1).expand(layer_height, layer_width)
+            w = torch.arange(0, layer_width).view(1, -1).expand(layer_height, layer_width).float()
+            h = torch.arange(0, layer_height).view(-1, 1).expand(layer_height, layer_width).float()
             if self.use_cuda:
                 w = w.cuda()
                 h = h.cuda()
@@ -79,8 +79,8 @@ class PriorBoxLayer(nn.Module):
             box_width = []
             box_height = []
             # 1st box
-            box_width.append(self.min_size)
-            box_height.append(self.min_size)
+            box_width.append(float(self.min_size))
+            box_height.append(float(self.min_size))
             # 2nd box
             if self.max_size is not None:
                 box_width.append(math.sqrt(self.min_size * self.max_size))
@@ -93,16 +93,20 @@ class PriorBoxLayer(nn.Module):
             box_height = torch.tensor(box_height).view(1, 1, -1)
             box_dim = torch.stack((box_width, box_height, box_width, box_height), dim=3)
             box_dim = box_dim.expand(layer_height, layer_width, -1, -1)
+            if self.use_cuda:
+                box_dim = box_dim.cuda()
 
             # img_dim
-            img_w = torch.tensor(img_width).view(1, 1, 1)
-            img_h = torch.tensor(img_height).view(1, 1, 1)
+            img_w = torch.tensor(img_width).view(1, 1, 1).float()
+            img_h = torch.tensor(img_height).view(1, 1, 1).float()
             if self.use_cuda:
                 img_w = img_w.cuda()
                 img_h = img_h.cuda()
             img_dim = torch.stack((img_w, img_h, img_w, img_h), dim=3)
-            img_dim = img.expand(layer_height, layer_width, self.num_priors, -1)
+            img_dim = img_dim.expand(layer_height, layer_width, self.num_priors, -1)
 
             self.priors = (center_coord + add_mask * box_dim / 2.0) / img_dim
+            if self.clip:
+                self.priors.clamp_(0.0, 1.0)
         
         return self.priors

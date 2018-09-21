@@ -1,0 +1,16 @@
+conv4_3_norm:	torch.Size([1, 512, 37, 37])
+fc7:		torch.Size([1, 1024, 18, 18])
+conv6_2:	torch.Size([1, 512, 9, 9])
+conv7_2:	torch.Size([1, 256, 5, 5])
+conv8_2:	torch.Size([1, 256, 3, 3])
+pool6:		torch.Size([1, 256, 1, 1])
+
+conf:		torch.Size([1, 45176])
+loc:		torch.Size([1, 90352])
+
+prior_conv4_3:	torch.Size([37, 37, 6, 4])
+prior_fc7:	torch.Size([18, 18, 7, 4])
+prior_conv6_2:	torch.Size([9, 9, 7, 4])
+prior_conv7_2:	torch.Size([5, 5, 7, 4])
+prior_conv8_2:	torch.Size([3, 3, 7, 4])
+prior_pool6:	torch.Size([1, 1, 7, 4])

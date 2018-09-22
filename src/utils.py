@@ -26,26 +26,35 @@ def encode(matches, priors, variances):
     # matches: batch_size * num_priors * 4
     # priors: batch_size * num_priors * 4
     # variances: 4
-    prior_width = priors[:, :, 2] - priors[:, :, 0]
-    prior_height = priors[:, :, 3] - priors[:, :, 1]
-    prior_center_x = (priors[:, :, 0] + priors[:, :, 2]) / 2.0
-    prior_center_y = (priors[:, :, 1] + priors[:, :, 3]) / 2.0
+    # return: batch_size * num_priors * 4
 
-    bbox_width = matches[:, :, 2] - matches[:, :, 0]
-    bbox_height = matches[:, :, 3] - matches[:, :, 1]
-    bbox_center_x = (matches[:, :, 0] + matches[:, :, 2]) / 2.0
-    bbox_center_y = (matches[:, :, 1] + matches[:, :, 3]) / 2.0
+    # prior_width = priors[:, :, 2] - priors[:, :, 0]
+    # prior_height = priors[:, :, 3] - priors[:, :, 1]
+    prior_wh = priors[:, :, 2:] - priors[:, :, :2]
+    # prior_center_x = (priors[:, :, 0] + priors[:, :, 2]) / 2.0
+    # prior_center_y = (priors[:, :, 1] + priors[:, :, 3]) / 2.0
+    prior_cxy = (priors[:, :, :2] + priors[:, :, 2:]) / 2.0
+
+    # bbox_width = matches[:, :, 2] - matches[:, :, 0]
+    # bbox_height = matches[:, :, 3] - matches[:, :, 1]
+    bbox_wh = matches[:, :, 2:] - matches[:, :, :2]
+    # bbox_center_x = (matches[:, :, 0] + matches[:, :, 2]) / 2.0
+    # bbox_center_y = (matches[:, :, 1] + matches[:, :, 3]) / 2.0
+    bbox_cxy = (matches[:, :, :2] + matches[:, :, 2:]) / 2.0
 
     encode_bbox = []
-    encode_bbox.append((bbox_center_x - prior_center_x) / (prior_width * variances[0]))
-    encode_bbox.append((bbox_center_y - prior_center_y) / (prior_height * variances[1]))
-    encode_bbox.append((torch.log(bbox_width / prior_width) / variances[2]))
-    encode_bbox.append((torch.log(bbox_height / prior_height) / variances[3]))
+    # encode_bbox.append((bbox_center_x - prior_center_x) / (prior_width * variances[0]))
+    # encode_bbox.append((bbox_center_y - prior_center_y) / (prior_height * variances[1]))
+    encode_bbox.append((bbox_cxy - prior_cxy) / (prior_wh * variances[:2]))
+    # encode_bbox.append((torch.log(bbox_width / prior_width) / variances[2]))
+    # encode_bbox.append((torch.log(bbox_height / prior_height) / variances[3]))
+    encode_bbox.append(torch.log(bbox_wh / prior_wh) / variances[2:])
 
-    return torch.stack(encode_bbox, dim=2)
+    # return torch.stack(encode_bbox, dim=2)
+    return torch.cat(encode_bbox, dim=2)
 
 
-def match_bbox(gt, priors, threshold, variances):
+def match_bbox(gt, priors, threshold, variances, use_cuda):
     # gt: batch_size * num_objects * 4
     # priors: batch_size * num_priors * 4
     # variances: 4
@@ -69,6 +78,8 @@ def match_bbox(gt, priors, threshold, variances):
     # batch_size * num_prior * 4
 
     conf = torch.ones(gt.size(1))[best_truth_idx].unsqueeze(0).expand(batch_size, gt.size(1))
+    if use_cuda:
+        conf = conf.cuda()
     conf[best_truth_overlap < threshold] = 0
     loc = encode(matches, priors, variances)
     return loc, conf

@@ -70,6 +70,11 @@ class Net(torch.nn.Module):
             self.cuda()
 
     def forward(self, input):
+        # input: image, 3 x H x W
+        # output:
+        #   [0]: conf:      batch_size x num_priors x num_classes(2)
+        #   [1]: loc:       batch_size x num_priors x 4 (xcenter ycenter h w)
+        #   [2]: priors:    num_priors x 4 (xmin ymin xmax ymax)
         batch_size = input.size(0)
 
         conv1_1 = self.conv1_1(input)
@@ -132,7 +137,7 @@ class Net(torch.nn.Module):
         conv8_2_mbox_conf_flat = self.conv8_2_mbox_conf(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         pool6_mbox_conf_flat = self.pool6_mbox_conf(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         mbox_conf = torch.cat([conv4_3_norm_mbox_conf_flat, fc7_mbox_conf_flat, conv6_2_mbox_conf_flat, conv7_2_mbox_conf_flat, conv8_2_mbox_conf_flat, pool6_mbox_conf_flat], 1)
-        mbox_conf_flatten = F.softmax(mbox_conf.view(batch_size, -1, 2), dim=2).view(batch_size, -1)
+        mbox_conf_flatten = F.softmax(mbox_conf.view(batch_size, -1, 2), dim=2).view(batch_size, -1, 4)
 
         conv4_3_norm_mbox_loc_flat = self.conv4_3_norm_mbox_loc(conv4_3_norm).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         fc7_mbox_loc_flat = self.fc7_mbox_loc(relu7).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
@@ -141,15 +146,16 @@ class Net(torch.nn.Module):
         conv8_2_mbox_loc_flat = self.conv8_2_mbox_loc(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         pool6_mbox_loc_flat = self.pool6_mbox_loc(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         mbox_loc = torch.cat([conv4_3_norm_mbox_loc_flat, fc7_mbox_loc_flat, conv6_2_mbox_loc_flat, conv7_2_mbox_loc_flat, conv8_2_mbox_loc_flat, pool6_mbox_loc_flat], 1)
-        mbox_loc_flatten = F.softmax(mbox_loc.view(batch_size, -1, 2), dim=2).view(batch_size, -1)
+        mbox_loc_flatten = F.softmax(mbox_loc.view(batch_size, -1, 2), dim=2).view(batch_size, -1, 4)
 
         priors = []
-        priors.append(self.conv4_3_norm_mbox_priorbox(input, conv4_3_norm))
-        priors.append(self.fc7_mbox_priorbox(input, relu7))
-        priors.append(self.conv6_2_mbox_priorbox(input, conv6_2_relu))
-        priors.append(self.conv7_2_mbox_priorbox(input, conv7_2_relu))
-        priors.append(self.conv8_2_mbox_priorbox(input, conv8_2_relu))
-        priors.append(self.pool6_mbox_priorbox(input, pool6))
+        priors.append(self.conv4_3_norm_mbox_priorbox(input, conv4_3_norm).view(-1, 4))
+        priors.append(self.fc7_mbox_priorbox(input, relu7).view(-1, 4))
+        priors.append(self.conv6_2_mbox_priorbox(input, conv6_2_relu).view(-1, 4))
+        priors.append(self.conv7_2_mbox_priorbox(input, conv7_2_relu).view(-1, 4))
+        priors.append(self.conv8_2_mbox_priorbox(input, conv8_2_relu).view(-1, 4))
+        priors.append(self.pool6_mbox_priorbox(input, pool6).view(-1, 4))
+        priors = torch.cat(priors, dim=0)
         print(conv4_3_norm.size())
         print(fc7.size())
         print(conv6_2_relu.size())
@@ -171,5 +177,4 @@ if __name__ == "__main__":
     output = net(input)
     print(output[0].size())
     print(output[1].size())
-    for i in range(6):
-        print(output[2][i].size())
+    print(output[2].size())

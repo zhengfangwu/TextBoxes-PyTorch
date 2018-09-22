@@ -110,3 +110,23 @@ class PriorBoxLayer(nn.Module):
                 self.priors.clamp_(0.0, 1.0)
         
         return self.priors
+
+
+class MultiBoxLoss(nn.Module):
+
+    def __init__(self, threshold, variances, neg_ratio, use_cuda):
+        super(MultiBoxLoss, self).__init__()
+
+        self.threshold = threshold
+        self.variances = variances
+        self.neg_ratio = neg_ratio
+        self.use_cuda = use_cuda
+
+    def forward(self, predictions, targets):
+        # predictions:
+        #   loc: batch_size * num_priors * 4
+        #   conf: batch_size * num_priors * num_classes (2)
+        #   priors: list len=num_feature_map(6), each (h * w * num_priors * 4)
+        loc, conf, priors = predictions
+
+        

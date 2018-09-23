@@ -13,14 +13,15 @@ class ICDARLabel(object):
         super(ICDARLabel, self).__init__()
         elems = string.strip().split()
         self.idx = idx
-        self.xmin = int(elems[0])
-        self.ymin = int(elems[1])
-        self.xmax = int(elems[2])
-        self.ymax = int(elems[3])
+        self.bbox = []
+        for i in range(4):
+            self.bbox.append(int(elems[i]))
+        self.bbox = torch.Tensor(self.bbox)
         self.text = elems[4]
     
     def __str__(self):
-        return 'Img: %s Label: %s at (%d, %d, %d, %d)' % (self.idx, self.text, self.xmin, self.ymin, self.xmax, self.ymax)
+        return 'Img: %s Label: %s at (%d, %d, %d, %d)' % (self.idx, self.text,\
+            self.bbox[0].item(), self.bbox[1].item(), self.bbox[2].item(), self.bbox[3].item())
 
 class ICDARDataset(torch.utils.data.Dataset):
 
@@ -55,9 +56,14 @@ class ICDARDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.img)
 
+    def image_augmentation(img):
+        
+
     def __getitem__(self, idx):
         img_t = self.img[idx]
+        bbox_t = self.gt[idx].bbox
         if self.use_cuda:
             img_t = img_t.cuda()
+            bbox_t = bbox_t.cuda()
         img_t = (img_t / 255.0 - self.mean) / self.std
-        return img_t, self.gt[idx]
+        return img_t, bbox_t

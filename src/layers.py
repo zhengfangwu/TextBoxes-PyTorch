@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .utils import match, log_sum_exp
+
 class L2Norm(nn.Module):
 
     def __init__(self, in_channels, scale_init):
@@ -122,11 +124,63 @@ class MultiBoxLoss(nn.Module):
         self.neg_ratio = neg_ratio
         self.use_cuda = use_cuda
 
+        self.num_classes = 2
+
     def forward(self, predictions, targets):
         # predictions:
-        #   loc: batch_size * num_priors * 4
-        #   conf: batch_size * num_priors * num_classes (2)
-        #   priors: list len=num_feature_map(6), each (h * w * num_priors * 4)
-        loc, conf, priors = predictions
+        #   loc_data: batch_size * num_priors * 4
+        #   conf_data: batch_size * num_priors * num_classes (2)
+        #   priors: num_priors * 4
+        # targets:
+        #   list, len=batch_size, each (num_objects, 4), no labels
 
+        loc_data, conf_data, priors = predictions
+
+        batch_size = loc_data.size(0)
+        num_priors = loc_data.size(1)
+        # dim check
+        assert conf_data.size(0) == loc_data.size(0), "conf and loc should have same batch size"
+        assert conf_data.size(1) == loc_data.size(1), "conf and loc should have same amount of prior boxes"
+
+        loc_t = []
+        conf_t = []
+        for loc, conf, target in zip(loc_data, conf_data, targets):
+            _loc, _conf = match(target, priors, self.threshold, self.variances, self.use_cuda)
+            loc_t.append(_loc)
+            conf_t.append(_conf)
+        loc_t = torch.stack(loc_t, dim=0) # batch_size * num_priors * 4
+        conf_t = torch.stack(conf_t, dim=0) # batch_size * num_priors
+
+        pos = conf_t > 0 # batch_size * num_priors
+
+        # Localization loss
+        pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, 4)
+        loc_p = loc_data[pos_idx].view(-1, 4)
+        loc_t = loc_t.view(-1, 4)
+        loss_loc = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
+
+        # Hard negative mining
+        score = log_sum_exp(conf_data) # batch_size * num_priors
+        score -= conf_data.gather(1, conf_t)
+
+        score[pos] = 0
+        _, score_idx = score.sort(1, descending=True) # batch_size * num_priors
+        _, idx_rank = score_idx.sort(1)
+
+        num_pos = pos.sum(1, keepdim=True)
+        num_neg = torch.clamp(self.neg_ratio * num_pos, max=pos.size(1) - 1)
+        neg = idx_rank < num_neg.expand_as(idx_rank)
+
+        # Confidence loss including positive and negative examples
+        pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, self.num_classes)
+        neg_idx = neg.unsqueeze(2).expand(batch_size, num_priors, self.num_classes)
+        conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
+        targets_weighted = conf_t[(pos + neg).gt(0)]
+        loss_conf = F.cross_entropy(conf_p, targets_weighted, size_average=False)
+
+        N = num_pos.sum().item()
+        loss_loc /= N
+        loss_conf /= N
+
+        return loss_loc, loss_conf
         

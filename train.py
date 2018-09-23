@@ -25,6 +25,9 @@ img_w = 300
 min_size = [30, 60, 114, 168, 222, 276] 
 max_size = [None, 114, 167, 222, 276, 330]
 aspect_ratios = [2, 3, 5, 7, 10]
+threshold = 0.5
+variances = [0.1, 0.1, 0.2, 0.2]
+neg_ratio = 3.0
 
 train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, img_h, img_w, use_cuda=args.use_cuda)
 test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, img_h, img_w, use_cuda=args.use_cuda)
@@ -34,3 +37,4 @@ test_dataloader = DataLoader(test_dataset, batch_size = 1, shuffle=False)
 
 
 net = Net(min_size, max_size, aspect_ratios)
+criterion = MultiBoxLoss(threshold, variances, neg_ratio, use_cuda=args.use_cuda)

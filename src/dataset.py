@@ -2,7 +2,9 @@ import torch
 import torch.utils.data
 
 import os
-from skimage import io, transform
+import random
+import numpy as np
+from skimage import io, transform, color
 
 vgg_mean = torch.Tensor([0.485, 0.456, 0.406])
 vgg_std = torch.Tensor([0.229, 0.224, 0.225])
@@ -56,8 +58,69 @@ class ICDARDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.img)
 
-    def image_augmentation(img):
+    def image_augmentation(self, image):
+        # ConvertFromInts
+        image = image.astype(np.float32)
+
+        # ToAbsoluteCoords (ignored)
+
+        # ------------ PhotometricDistort --------------
+        # RandomBrightness
+        delta = 32
+        if random.randint(0, 1):
+            image += random.uniform(-delta, delta)
+
+        r = random.randint(0, 1)
+        if r == 1:
+            # RandomContrast first
+            lower = 0.5
+            upper = 1.5
+            if random.randint(0, 1):
+                image *= random.uniform(lower, upper)
+
+        # ConvertColor: convert from RGB to HSV
+        color.rgb2hsv(image)
+
+        # RandomSaturation
+        lower = 0.5
+        upper = 1.5
+        if random.randint(0, 1):
+            image[:, :, 1] *= random.uniform(lower, upper)
+
+        # RandomHue
+        delta = 18.0
+        if random.randint(0, 1):
+            image[:, :, 0] += random.uniform(-delta, delta)
+            image[:, :, 0][image[:, :, 0] > 360.0] -= 360.0
+            image[:, :, 0][image[:, :, 0] < 0.0] += 360.0
         
+        # ConvertColor: convert from HSV to RGB
+        color.hsv2rgb(image)
+
+        if r == 0:
+            # RandomContrast later
+            lower = 0.5
+            upper = 1.5
+            if random.randint(0, 1):
+                image *= random.uniform(lower, upper)
+        
+        # RandomLightingNoise
+        perms = ((0, 1, 2), (0, 2, 1),
+                 (1, 0, 2), (1, 2, 0),
+                 (2, 0, 1), (2, 1, 0))
+
+        if random.randint(0, 1):
+            swap = perms[random.randint(0, len(perms) - 1)]
+            image = image[:, :, swap]
+
+        # Expand(mean)
+        mean = (104, 117, 123)
+        
+        # RandomSampleCrop
+        # RandomMirror
+        # ToPercentCoords
+        # Resize(size)
+        # SubtractMeans(mean)
 
     def __getitem__(self, idx):
         img_t = self.img[idx]

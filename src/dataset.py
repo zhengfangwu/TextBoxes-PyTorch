@@ -9,6 +9,19 @@ from skimage import io, transform, color
 vgg_mean = torch.Tensor([0.485, 0.456, 0.406])
 vgg_std = torch.Tensor([0.229, 0.224, 0.225])
 
+def jaccard_numpy(box_a, box_b):
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip((max_xy - min_xy), a_min = 0, a_max = np.inf)
+    inter = inter[:, 0] * inter[:, 1]
+
+    area_a = ((box_a[:, 2] - box_a[:, 0]) *
+              (box_a[:, 3] - box_a[:, 1]))
+    area_b = ((box_b[2] - box_b[0]) *
+              (box_b[3] - box_b[1]))
+    union = area_a + area_b - inter
+    return inter / union
+
 class ICDARLabel(object):
 
     def __init__(self, idx, string):
@@ -18,7 +31,6 @@ class ICDARLabel(object):
         self.bbox = []
         for i in range(4):
             self.bbox.append(int(elems[i]))
-        self.bbox = torch.Tensor(self.bbox)
         self.text = elems[4]
     
     def __str__(self):
@@ -37,28 +49,12 @@ class ICDARDataset(torch.utils.data.Dataset):
         self.std = std.cuda() if use_cuda else std
 
         # prepare training datasets
-        img_list = os.listdir(img_path)
-        self.img = []
-        self.gt = []
-        for img_file in img_list:
+        self.img_list = os.listdir(img_path)
 
-            img = io.imread(os.path.join(img_path, img_file))
-            img = transform.resize(img, (img_h, img_w))
-            img_t = torch.Tensor(img).float()
-            self.img.append(img_t)
-            
-            img_idx, _ = os.path.split(img_file)
-            gt_file = os.path.join(gt_path, 'gt_'+img_idx+'.txt')
-            with open(gt_file) as f:
-                gt_int = f.readlines()
-            gt_int = [ICDARLabel(img_idx, x) for x in gt_int]
-            self.gt.append(gt_int)
-
-    
     def __len__(self):
-        return len(self.img)
+        return len(self.img_list)
 
-    def image_augmentation(self, image):
+    def image_augmentation(self, image, boxes):
         # ConvertFromInts
         image = image.astype(np.float32)
 
@@ -115,18 +111,127 @@ class ICDARDataset(torch.utils.data.Dataset):
 
         # Expand(mean)
         mean = (104, 117, 123)
-        
+        if random.randint(0, 1):
+            
+            height, width, depth = image.shape
+            ratio = random.uniform(1, 4)
+            left = random.uniform(0, width * ratio - width)
+            top = random.uniform(0, height * ratio - height)
+
+            expand_image = np.zeros(
+                (int(height * ratio), int(width * ratio), depth),
+                dtype = image.dtype
+            )
+            expand_image[:, :, :] = mean
+            expand_image[int(top):int(top + height),
+                   int(left):int(left + width)] = image
+            image = expand_image
+
+            boxes[:, :2] += (int(left), int(top))
+            boxes[:, 2:] += (int(left), int(top))
+
         # RandomSampleCrop
+        sample_options = (
+            None,           # use entirely original image
+            (0.1, None),    # sample a patch with jaccard w/obj in 0.1, 0.3, 0.5, 0.7, 0.9
+            (0.3, None),    
+            (0.7, None),
+            (0.9, None),
+            (None, None)    # randomly sample a patch
+        )
+
+        height, width, _ = image.shape
+        while True:
+            flag = True
+            mode = random.choice(sample_options)
+            if mode is None:
+                break
+            
+            min_iou, max_iou = mode
+            if min_iou is None:
+                min_iou = float('-inf')
+            if max_iou is None:
+                max_iou = float('inf')
+            
+            for _ in range(50):
+                current_image = image
+
+                w = random.uniform(0.3 * width, width)
+                h = random.uniform(0.3 * height, height)
+
+                # aspect ratio constraint between 0.5 ~ 2
+                if h / w < 0.5 or h / w > 2:
+                    continue
+                
+                left = random.uniform(0, width - w)
+                top = random.uniform(0, height - h)
+
+                rect = np.array([int(left), int(top), int(left + w), int(top + h)])
+                # Note: actually, "top" is bottom axis
+                overlap = jaccard_numpy(boxes, rect)
+
+                if overlap.min() < min_iou and max_iou < overlap.max():
+                    continue
+                
+                current_image = current_image[rect[1]:rect[3],
+                                              rect[0]:rect[2],
+                                              :]
+                
+                centers = (boxes[:, :2] + boxes[:, 2:]) / 2.0
+
+                # mask in all gt boxes whose centers are over the sampled rectangle
+                mask = (rect[0] < centers[:, 0]) * (rect[1] < centers[:, 1]) \
+                   * (rect[2] > centers[:, 0]) * (rect[3] > centers[:, 1])
+                
+                if not mask.any():
+                    continue
+                
+                current_boxes = boxes[mask, :].copy()
+                current_boxes[:, :2] = np.maximum(current_boxes[:, :2], rect[:2])
+                current_boxes[:, :2] -= rect[:2]
+                current_boxes[:, 2:] = np.minimum(current_boxes[:, 2:], rect[2:])
+                current_boxes[:, 2:] -= rect[:2]
+
+                image = current_image
+                boxes = current_boxes
+                flag = False
+                break
+            
+            if flag is False:
+                break
+
         # RandomMirror
-        # ToPercentCoords
+        if random.randint(0, 1):
+            image = image[:, ::-1]
+            boxes = boxes.copy()
+            boxes[:, 0::2] = width - boxes[:, 2::-2]
+
+        # ToPercentCoords (ignored)
+
         # Resize(size)
+        size = 300
+        image = transform.resize(image, (size, size))
+
         # SubtractMeans(mean)
+        image = (image / 255.0 - vgg_mean) / vgg_std
+
+        return image, boxes
 
     def __getitem__(self, idx):
-        img_t = self.img[idx]
-        bbox_t = self.gt[idx].bbox
+        
+        img_file = self.img_list[idx]
+        image = io.imread(os.path.join(self.img_path, img_file))
+        
+        img_idx, _ = os.path.split(img_file)
+        gt_file = os.path.join(self.gt_path, 'gt_'+img_idx+'.txt')
+        with open(gt_file) as f:
+            gt_int = f.readlines()
+        gt = [ICDARLabel(img_idx, x) for x in gt_int]
+        boxes = np.array([x.bbox for x in gt])
+        image, boxes = self.image_augmentation(image, boxes)
+        image_t = torch.Tensor(image)
+        boxes_t = torch.Tensor(boxes)
         if self.use_cuda:
-            img_t = img_t.cuda()
-            bbox_t = bbox_t.cuda()
-        img_t = (img_t / 255.0 - self.mean) / self.std
-        return img_t, bbox_t
+            image_t = image_t.cuda()
+            boxes_t = boxes_t.cuda()
+        return image_t, boxes_t

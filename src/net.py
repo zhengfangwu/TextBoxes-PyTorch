@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from layers import L2Norm, PriorBoxLayer
+from .layers import L2Norm, PriorBoxLayer
 
 class Net(torch.nn.Module):
 

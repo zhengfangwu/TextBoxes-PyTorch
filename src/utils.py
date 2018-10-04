@@ -89,3 +89,9 @@ def match(gt, priors, threshold, variances, use_cuda):
 def log_sum_exp(x):
     x_max = x.max()
     return torch.log(torch.sum(torch.exp(x - x_max), dim=2, keepdim=False)) + x_max
+
+
+def init_weights(m):
+    if isinstance(m, torch.nn.Conv2d):
+        torch.nn.init.xavier_uniform_(m.weight)
+        m.bias.zero_()

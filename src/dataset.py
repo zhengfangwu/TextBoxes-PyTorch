@@ -5,9 +5,19 @@ import os
 import random
 import numpy as np
 from skimage import io, transform, color
+import skimage
 
-vgg_mean = torch.Tensor([0.485, 0.456, 0.406])
-vgg_std = torch.Tensor([0.229, 0.224, 0.225])
+np.seterr(divide='ignore', invalid='ignore')
+
+vgg_mean = (0.485, 0.456, 0.406)
+vgg_std = (0.229, 0.224, 0.225)
+
+def is_img_file(s):
+    _, ext = os.path.splitext(s)
+    if ext == '.jpg' or ext == '.png':
+        return True
+    else:
+        return False
 
 def jaccard_numpy(box_a, box_b):
     max_xy = np.minimum(box_a[:, 2:], box_b[2:])
@@ -45,18 +55,26 @@ class ICDARDataset(torch.utils.data.Dataset):
         self.img_path = img_path
         self.gt_path = gt_path
         self.use_cuda = use_cuda
-        self.mean = mean.cuda() if use_cuda else mean
-        self.std = std.cuda() if use_cuda else std
+        self.mean = mean
+        self.std = std
 
         # prepare training datasets
-        self.img_list = os.listdir(img_path)
+        img_list = os.listdir(img_path)
+        self.img_list = []
+        self.gt_list = []
+        for s in img_list:
+            name, ext = os.path.splitext(s)
+            if ext == '.jpg' or ext == '.png':
+                self.img_list.append(s)
+                self.gt_list.append('gt_' + name + '.txt')
 
     def __len__(self):
         return len(self.img_list)
 
     def image_augmentation(self, image, boxes):
+
         # ConvertFromInts
-        image = image.astype(np.float32)
+        image = skimage.img_as_float(image)
 
         # ToAbsoluteCoords (ignored)
 
@@ -210,27 +228,30 @@ class ICDARDataset(torch.utils.data.Dataset):
 
         # Resize(size)
         size = 300
-        image = transform.resize(image, (size, size))
+        image = transform.resize(image, (size, size), mode='constant', anti_aliasing=True)
 
         # SubtractMeans(mean)
-        image = (image / 255.0 - vgg_mean) / vgg_std
+        # image = (image - vgg_mean) / vgg_std
+        image = (image / 255.0 - self.mean) / self.std
 
         return image, boxes
 
     def __getitem__(self, idx):
         
-        img_file = self.img_list[idx]
-        image = io.imread(os.path.join(self.img_path, img_file))
+        img_file = os.path.join(self.img_path, self.img_list[idx])
+        image = io.imread(img_file)
         
-        img_idx, _ = os.path.split(img_file)
-        gt_file = os.path.join(self.gt_path, 'gt_'+img_idx+'.txt')
+        gt_file = os.path.join(self.gt_path, self.gt_list[idx])
         with open(gt_file) as f:
             gt_int = f.readlines()
-        gt = [ICDARLabel(img_idx, x) for x in gt_int]
+        gt = [ICDARLabel(self.gt_list[idx], x) for x in gt_int]
         boxes = np.array([x.bbox for x in gt])
+        
         image, boxes = self.image_augmentation(image, boxes)
-        image_t = torch.Tensor(image)
-        boxes_t = torch.Tensor(boxes)
+
+        image_t = torch.from_numpy(image.transpose(2, 0, 1))
+        boxes_t = torch.from_numpy(boxes)
+        print(image_t.type(), boxes_t.size())
         if self.use_cuda:
             image_t = image_t.cuda()
             boxes_t = boxes_t.cuda()

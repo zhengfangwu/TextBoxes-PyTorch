@@ -94,4 +94,4 @@ def log_sum_exp(x):
 def init_weights(m):
     if isinstance(m, torch.nn.Conv2d):
         torch.nn.init.xavier_uniform_(m.weight)
-        m.bias.zero_()
+        m.bias.data.zero_()

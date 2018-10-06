@@ -6,7 +6,7 @@ from .layers import L2Norm, PriorBoxLayer
 
 class Net(torch.nn.Module):
 
-    def __init__(self, min_size, max_size, aspect_ratios, clip=True, use_cuda=True):
+    def __init__(self, min_size, max_size, aspect_ratios, clip=True, use_cuda=True, round_up_bbox=False):
         super(Net, self).__init__()
 
         self.min_size = min_size
@@ -14,6 +14,7 @@ class Net(torch.nn.Module):
         self.aspect_ratios = aspect_ratios
         self.clip = clip
         self.use_cuda = use_cuda
+        self.round_up_bbox = round_up_bbox
 
         self.conv1_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1)
         self.conv1_2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, padding=1)
@@ -45,26 +46,40 @@ class Net(torch.nn.Module):
 
         self.conv4_3_norm = L2Norm(in_channels=512, scale_init=20.0)
 
-        self.conv4_3_norm_mbox_conf = nn.Conv2d(in_channels=512, out_channels=24, kernel_size=(1, 5), stride=1, padding=(0, 2))
-        self.conv4_3_norm_mbox_loc = nn.Conv2d(in_channels=512, out_channels=48, kernel_size=(1, 5), stride=1, padding=(0, 2))
-        self.fc7_mbox_conf = nn.Conv2d(in_channels=1024, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.fc7_mbox_loc = nn.Conv2d(in_channels=1024, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.conv6_2_mbox_conf = nn.Conv2d(in_channels=512, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.conv6_2_mbox_loc = nn.Conv2d(in_channels=512, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.conv7_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.conv7_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.conv8_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.conv8_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.pool6_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
-        self.pool6_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+        if self.round_up_bbox:
+            self.conv4_3_norm_mbox_conf = nn.Conv2d(in_channels=512, out_channels=24, kernel_size=(1, 5), stride=1, padding=(0, 2))
+            self.conv4_3_norm_mbox_loc = nn.Conv2d(in_channels=512, out_channels=48, kernel_size=(1, 5), stride=1, padding=(0, 2))
+            self.fc7_mbox_conf = nn.Conv2d(in_channels=1024, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.fc7_mbox_loc = nn.Conv2d(in_channels=1024, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv6_2_mbox_conf = nn.Conv2d(in_channels=512, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv6_2_mbox_loc = nn.Conv2d(in_channels=512, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv7_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv7_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv8_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv8_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.pool6_mbox_conf = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.pool6_mbox_loc = nn.Conv2d(in_channels=256, out_channels=56, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+        else:
+            self.conv4_3_norm_mbox_conf = nn.Conv2d(in_channels=512, out_channels=12, kernel_size=(1, 5), stride=1, padding=(0, 2))
+            self.conv4_3_norm_mbox_loc = nn.Conv2d(in_channels=512, out_channels=24, kernel_size=(1, 5), stride=1, padding=(0, 2))
+            self.fc7_mbox_conf = nn.Conv2d(in_channels=1024, out_channels=14, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.fc7_mbox_loc = nn.Conv2d(in_channels=1024, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv6_2_mbox_conf = nn.Conv2d(in_channels=512, out_channels=14, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv6_2_mbox_loc = nn.Conv2d(in_channels=512, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv7_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=14, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv7_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv8_2_mbox_conf = nn.Conv2d(in_channels=256, out_channels=14, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.conv8_2_mbox_loc = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.pool6_mbox_conf = nn.Conv2d(in_channels=256, out_channels=14, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
+            self.pool6_mbox_loc = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
 
 
-        self.conv4_3_norm_mbox_priorbox = PriorBoxLayer(min_size[0], max_size[0], aspect_ratios, clip, use_cuda)
-        self.fc7_mbox_priorbox = PriorBoxLayer(min_size[1], max_size[1], aspect_ratios, clip, use_cuda)
-        self.conv6_2_mbox_priorbox = PriorBoxLayer(min_size[2], max_size[2], aspect_ratios, clip, use_cuda)
-        self.conv7_2_mbox_priorbox = PriorBoxLayer(min_size[3], max_size[3], aspect_ratios, clip, use_cuda)
-        self.conv8_2_mbox_priorbox = PriorBoxLayer(min_size[4], max_size[4], aspect_ratios, clip, use_cuda)
-        self.pool6_mbox_priorbox = PriorBoxLayer(min_size[5], max_size[5], aspect_ratios, clip, use_cuda)
+        self.conv4_3_norm_mbox_priorbox = PriorBoxLayer(min_size[0], max_size[0], aspect_ratios, clip, use_cuda, round_up_bbox)
+        self.fc7_mbox_priorbox = PriorBoxLayer(min_size[1], max_size[1], aspect_ratios, clip, use_cuda, round_up_bbox)
+        self.conv6_2_mbox_priorbox = PriorBoxLayer(min_size[2], max_size[2], aspect_ratios, clip, use_cuda, round_up_bbox)
+        self.conv7_2_mbox_priorbox = PriorBoxLayer(min_size[3], max_size[3], aspect_ratios, clip, use_cuda, round_up_bbox)
+        self.conv8_2_mbox_priorbox = PriorBoxLayer(min_size[4], max_size[4], aspect_ratios, clip, use_cuda, round_up_bbox)
+        self.pool6_mbox_priorbox = PriorBoxLayer(min_size[5], max_size[5], aspect_ratios, clip, use_cuda, round_up_bbox)
 
         if use_cuda:
             self.cuda()
@@ -137,7 +152,7 @@ class Net(torch.nn.Module):
         conv8_2_mbox_conf_flat = self.conv8_2_mbox_conf(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         pool6_mbox_conf_flat = self.pool6_mbox_conf(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         mbox_conf = torch.cat([conv4_3_norm_mbox_conf_flat, fc7_mbox_conf_flat, conv6_2_mbox_conf_flat, conv7_2_mbox_conf_flat, conv8_2_mbox_conf_flat, pool6_mbox_conf_flat], 1)
-        mbox_conf_flatten = F.softmax(mbox_conf.view(batch_size, -1, 2), dim=2).view(batch_size, -1, 4)
+        mbox_conf_flatten = F.softmax(mbox_conf.view(batch_size, -1, 2), dim=2).view(batch_size, -1, 2)
 
         conv4_3_norm_mbox_loc_flat = self.conv4_3_norm_mbox_loc(conv4_3_norm).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         fc7_mbox_loc_flat = self.fc7_mbox_loc(relu7).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
@@ -146,7 +161,7 @@ class Net(torch.nn.Module):
         conv8_2_mbox_loc_flat = self.conv8_2_mbox_loc(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         pool6_mbox_loc_flat = self.pool6_mbox_loc(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         mbox_loc = torch.cat([conv4_3_norm_mbox_loc_flat, fc7_mbox_loc_flat, conv6_2_mbox_loc_flat, conv7_2_mbox_loc_flat, conv8_2_mbox_loc_flat, pool6_mbox_loc_flat], 1)
-        mbox_loc_flatten = F.softmax(mbox_loc.view(batch_size, -1, 2), dim=2).view(batch_size, -1, 4)
+        mbox_loc_flatten = F.softmax(mbox_loc.view(batch_size, -1, 4), dim=2).view(batch_size, -1, 4)
 
         priors = []
         priors.append(self.conv4_3_norm_mbox_priorbox(input, conv4_3_norm).view(-1, 4))
@@ -156,14 +171,8 @@ class Net(torch.nn.Module):
         priors.append(self.conv8_2_mbox_priorbox(input, conv8_2_relu).view(-1, 4))
         priors.append(self.pool6_mbox_priorbox(input, pool6).view(-1, 4))
         priors = torch.cat(priors, dim=0)
-        print(conv4_3_norm.size())
-        print(fc7.size())
-        print(conv6_2_relu.size())
-        print(conv7_2_relu.size())
-        print(conv8_2_relu.size())
-        print(pool6.size())
 
-        return mbox_conf_flatten, mbox_loc_flatten, priors
+        return mbox_loc_flatten, mbox_conf_flatten, priors
 
 if __name__ == "__main__":
     img_h = 300

@@ -29,7 +29,7 @@ class PriorBoxLayer(nn.Module):
     
     # note: flip not implemented
     # variance is not needed to generate prior boxes
-    def __init__(self, min_size, max_size, aspect_ratios, clip, use_cuda):
+    def __init__(self, min_size, max_size, aspect_ratios, clip, use_cuda, round_up_bbox):
         super(PriorBoxLayer, self).__init__()
 
         self.min_size = min_size
@@ -37,6 +37,7 @@ class PriorBoxLayer(nn.Module):
         self.aspect_ratios = aspect_ratios
         self.clip = clip
         self.use_cuda = use_cuda
+        self.round_up_bbox = round_up_bbox # TODO
 
         self.num_priors = len(aspect_ratios) + 1
         if max_size is not None:
@@ -150,18 +151,28 @@ class MultiBoxLoss(nn.Module):
             conf_t.append(_conf)
         loc_t = torch.stack(loc_t, dim=0) # batch_size * num_priors * 4
         conf_t = torch.stack(conf_t, dim=0) # batch_size * num_priors
+        # print('loc_t, conf_t', loc_t.size(), conf_t.size())
 
         pos = conf_t > 0 # batch_size * num_priors
 
         # Localization loss
+        # print('pos', pos.size())
+        # print('targets', targets.size())
         pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, 4)
+        print('pos_idx', pos_idx.size())
+        # print('pos_idx', pos_idx.size())
         loc_p = loc_data[pos_idx].view(-1, 4)
-        loc_t = loc_t.view(-1, 4)
-        loss_loc = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
+        loc_t = loc_t[pos_idx].view(-1, 4)
+        print('loc_p, loc_t', loc_p.size(), loc_t.size())
+        loss_loc = F.smooth_l1_loss(loc_p, loc_t)
+        print('loss_loc', loss_loc.size()) # []
 
         # Hard negative mining
         score = log_sum_exp(conf_data) # batch_size * num_priors
-        score -= conf_data.gather(1, conf_t)
+        print('cond_data, conf_t', conf_data.size(), conf_t.size())
+        print('scroe', score.size())
+        tmp = conf_data.view(batch_size, -1, self.num_classes).gather(2, conf_t.view(batch_size, -1, 1))
+        score = score - tmp
 
         score[pos] = 0
         _, score_idx = score.sort(1, descending=True) # batch_size * num_priors

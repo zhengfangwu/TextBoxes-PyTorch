@@ -93,7 +93,8 @@ class ICDARDataset(torch.utils.data.Dataset):
                 image *= random.uniform(lower, upper)
 
         # ConvertColor: convert from RGB to HSV
-        color.rgb2hsv(image)
+        image = np.clip(image, 0.0, 1.0)
+        image = color.rgb2hsv(image)
 
         # RandomSaturation
         lower = 0.5
@@ -109,7 +110,8 @@ class ICDARDataset(torch.utils.data.Dataset):
             image[:, :, 0][image[:, :, 0] < 0.0] += 360.0
         
         # ConvertColor: convert from HSV to RGB
-        color.hsv2rgb(image)
+        image = np.clip(image, 0.0, 1.0)
+        image = color.hsv2rgb(image)
 
         if r == 0:
             # RandomContrast later
@@ -249,9 +251,8 @@ class ICDARDataset(torch.utils.data.Dataset):
         
         image, boxes = self.image_augmentation(image, boxes)
 
-        image_t = torch.from_numpy(image.transpose(2, 0, 1))
-        boxes_t = torch.from_numpy(boxes)
-        print(image_t.type(), boxes_t.size())
+        image_t = torch.from_numpy(image.transpose(2, 0, 1)).float()
+        boxes_t = torch.from_numpy(boxes).float()
         if self.use_cuda:
             image_t = image_t.cuda()
             boxes_t = boxes_t.cuda()

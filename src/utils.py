@@ -14,9 +14,9 @@ def jaccard(box_a, box_b):
     intersec = interval[:, :, 0] * interval[:, :, 1]
 
     area_a = ((box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])).\
-            unsqueeze(1).expand_as(num_a, num_b)
-    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_a[:, 1])).\
-            unsqueeze(0).expand_as(num_a, num_b)
+            unsqueeze(1).expand(num_a, num_b)
+    area_b = ((box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])).\
+            unsqueeze(0).expand(num_a, num_b)
 
     return intersec / (area_a + area_b - intersec)
 
@@ -78,11 +78,12 @@ def match(gt, priors, threshold, variances, use_cuda):
     matches = gt[best_truth_idx]
     # num_prior * 4
 
-    conf = torch.ones(num_priors).float()
+    conf = torch.ones(num_priors).long()
     if use_cuda:
         conf = conf.cuda()
     conf[best_truth_overlap < threshold] = 0
     loc = encode(matches, priors, variances)
+    # print(conf.size(), loc.size())
     return loc, conf
 
 

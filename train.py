@@ -17,7 +17,7 @@ parser.add_argument('--train_batch_size', type=int, required=True)
 parser.add_argument('--test_batch_size', type=int, default=1)
 parser.add_argument('--shuffle', type=int, default=True)
 parser.add_argument('--use_cuda', type=int, default=True)
-parser.add_argument('--data_threads', type=int, default=1)
+parser.add_argument('--data_threads', type=int, default=0)
 parser.add_argument('--epoches', type=int, required=True)
 parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--cuda', type=int, default=True)
@@ -33,7 +33,9 @@ min_size = [30, 60, 114, 168, 222, 276]
 max_size = [None, 114, 167, 222, 276, 330]
 aspect_ratios = [2, 3, 5, 7, 10]
 threshold = 0.5
-variances = [0.1, 0.1, 0.2, 0.2]
+variances = torch.tensor([0.1, 0.1, 0.2, 0.2])
+if args.cuda:
+    variances = variances.cuda()
 neg_ratio = 3.0
 
 train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, img_h, img_w, use_cuda=args.use_cuda)

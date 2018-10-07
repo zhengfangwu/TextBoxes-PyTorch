@@ -56,7 +56,7 @@ class PriorBoxLayer(nn.Module):
         # [ (1), (2), layer_h, layer_w, (num_priors), (4) ]
         # (center_coord + add_mask * box_dim / 2.) / img_dim
         # max parallalism
-        if self.priors == None:
+        if self.priors is None:
 
             # center_coord
             w = torch.arange(0, layer_width).view(1, -1).expand(layer_height, layer_width).float()
@@ -159,20 +159,14 @@ class MultiBoxLoss(nn.Module):
         # print('pos', pos.size())
         # print('targets', targets.size())
         pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, 4)
-        print('pos_idx', pos_idx.size())
         # print('pos_idx', pos_idx.size())
         loc_p = loc_data[pos_idx].view(-1, 4)
         loc_t = loc_t[pos_idx].view(-1, 4)
-        print('loc_p, loc_t', loc_p.size(), loc_t.size())
         loss_loc = F.smooth_l1_loss(loc_p, loc_t)
-        print('loss_loc', loss_loc.size()) # []
 
         # Hard negative mining
         score = log_sum_exp(conf_data) # batch_size * num_priors
-        print('cond_data, conf_t', conf_data.size(), conf_t.size())
-        print('scroe', score.size())
-        tmp = conf_data.view(batch_size, -1, self.num_classes).gather(2, conf_t.view(batch_size, -1, 1))
-        score = score - tmp
+        score -= (conf_data.view(batch_size, -1, self.num_classes).gather(2, conf_t.view(batch_size, -1, 1))).squeeze(2)
 
         score[pos] = 0
         _, score_idx = score.sort(1, descending=True) # batch_size * num_priors
@@ -187,7 +181,7 @@ class MultiBoxLoss(nn.Module):
         neg_idx = neg.unsqueeze(2).expand(batch_size, num_priors, self.num_classes)
         conf_p = conf_data[(pos_idx + neg_idx).gt(0)].view(-1, self.num_classes)
         targets_weighted = conf_t[(pos + neg).gt(0)]
-        loss_conf = F.cross_entropy(conf_p, targets_weighted, size_average=False)
+        loss_conf = F.cross_entropy(conf_p, targets_weighted)
 
         N = num_pos.sum().item()
         loss_loc /= N

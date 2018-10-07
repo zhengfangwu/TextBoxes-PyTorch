@@ -4,8 +4,7 @@ import torch.utils.data
 import os
 import random
 import numpy as np
-from skimage import io, transform, color
-import skimage
+import cv2
 
 np.seterr(divide='ignore', invalid='ignore')
 
@@ -57,6 +56,8 @@ class ICDARDataset(torch.utils.data.Dataset):
         self.use_cuda = use_cuda
         self.mean = mean
         self.std = std
+        self.img_h = img_h
+        self.img_w = img_w
 
         # prepare training datasets
         img_list = os.listdir(img_path)
@@ -74,13 +75,13 @@ class ICDARDataset(torch.utils.data.Dataset):
     def image_augmentation(self, image, boxes):
 
         # ConvertFromInts
-        image = skimage.img_as_float(image)
+        image = image.astype(np.float32)
 
         # ToAbsoluteCoords (ignored)
 
         # ------------ PhotometricDistort --------------
         # RandomBrightness
-        delta = 32
+        delta = 32.0
         if random.randint(0, 1):
             image += random.uniform(-delta, delta)
 
@@ -93,8 +94,7 @@ class ICDARDataset(torch.utils.data.Dataset):
                 image *= random.uniform(lower, upper)
 
         # ConvertColor: convert from RGB to HSV
-        image = np.clip(image, 0.0, 1.0)
-        image = color.rgb2hsv(image)
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
         # RandomSaturation
         lower = 0.5
@@ -110,8 +110,7 @@ class ICDARDataset(torch.utils.data.Dataset):
             image[:, :, 0][image[:, :, 0] < 0.0] += 360.0
         
         # ConvertColor: convert from HSV to RGB
-        image = np.clip(image, 0.0, 1.0)
-        image = color.hsv2rgb(image)
+        image = cv2.cvtColor(image, cv2.COLOR_HSV2RGB)
 
         if r == 0:
             # RandomContrast later
@@ -229,8 +228,7 @@ class ICDARDataset(torch.utils.data.Dataset):
         # ToPercentCoords (ignored)
 
         # Resize(size)
-        size = 300
-        image = transform.resize(image, (size, size), mode='constant', anti_aliasing=True)
+        image = cv2.resize(image, (self.img_h, self.img_w))
 
         # SubtractMeans(mean)
         # image = (image - vgg_mean) / vgg_std
@@ -241,7 +239,8 @@ class ICDARDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         
         img_file = os.path.join(self.img_path, self.img_list[idx])
-        image = io.imread(img_file)
+        image = cv2.imread(img_file)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         gt_file = os.path.join(self.gt_path, self.gt_list[idx])
         with open(gt_file) as f:

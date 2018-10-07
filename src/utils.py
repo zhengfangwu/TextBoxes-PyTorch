@@ -1,4 +1,6 @@
 import torch
+import os
+import torchvision
 
 def jaccard(box_a, box_b):
     # box_a: num_a * 4
@@ -91,8 +93,50 @@ def log_sum_exp(x):
     x_max = x.max()
     return torch.log(torch.sum(torch.exp(x - x_max), dim=2, keepdim=False)) + x_max
 
-
 def init_weights(m):
     if isinstance(m, torch.nn.Conv2d):
         torch.nn.init.xavier_uniform_(m.weight)
         m.bias.data.zero_()
+
+def init_conv_layer(layer_a, layer_b):
+    layer_a.weight = layer_b.weight
+    layer_a.bias = layer_b.bias
+
+def initialize(net):
+    net.apply(init_weights)
+    vgg = torchvision.models.vgg16(pretrained=True)
+    vgg = vgg.features
+
+    init_conv_layer(net.conv1_1, vgg[0])
+    init_conv_layer(net.conv1_2, vgg[2])
+    init_conv_layer(net.conv2_1, vgg[5])
+    init_conv_layer(net.conv2_2, vgg[7])
+    init_conv_layer(net.conv3_1, vgg[10])
+    init_conv_layer(net.conv3_2, vgg[12])
+    init_conv_layer(net.conv3_3, vgg[14])
+    init_conv_layer(net.conv4_1, vgg[17])
+    init_conv_layer(net.conv4_2, vgg[19])
+    init_conv_layer(net.conv4_3, vgg[21])
+    init_conv_layer(net.conv5_1, vgg[24])
+    init_conv_layer(net.conv5_2, vgg[26])
+    init_conv_layer(net.conv5_3, vgg[28])
+    print('test ok')
+
+def save_checkpoint(epoch_idx, checkpoint_folder, net, optimizer):
+    """ A comprehensive checkpoint saving function
+    """
+    checkpoint = {
+        'epoch': epoch_idx,
+        'model_state_dict': net.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict()
+    }
+    checkpoint_path = os.path.join(checkpoint_folder, 'checkpoint_epoch' + str(epoch_idx))
+    torch.save(checkpoint, checkpoint_path)
+
+def load_checkpoint(checkpoint_path, net, optimizer):
+    """ A comprehensive checkpoint loading function
+    """
+    checkpoint = torch.load(checkpoint_path)
+    net.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    return checkpoint['epoch']

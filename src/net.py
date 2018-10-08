@@ -6,7 +6,7 @@ from .layers import L2Norm, PriorBoxLayer
 
 class Net(torch.nn.Module):
 
-    def __init__(self, min_size, max_size, aspect_ratios, device, clip=True, round_up_bbox=False):
+    def __init__(self, min_size, max_size, aspect_ratios, device, phase, clip=True, round_up_bbox=False):
         super(Net, self).__init__()
 
         self.min_size = min_size
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     min_size = [30, 60, 114, 168, 222, 276] 
     max_size = [None, 114, 167, 222, 276, 330]
     aspect_ratios = [2, 3, 5, 7, 10]
-    net = Net(min_size, max_size, aspect_ratios)
+    net = Net(min_size, max_size, aspect_ratios, phase='train')
     input = torch.Tensor(1, 3, 300, 300).cuda()
     output = net(input)
     print(output[0].size())

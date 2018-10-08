@@ -62,12 +62,12 @@ if not os.path.exists(args.save_checkpoint_folder):
     os.mkdir(args.save_checkpoint_folder)
 neg_ratio = 3.0
 
-train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, args.img_h, args.img_w)
-test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, args.img_w)
+train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, args.img_h, args.img_w, 'train')
+test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, args.img_w, 'test')
 train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, collate_fn=collate, num_workers=args.data_threads)
 test_dataloader = DataLoader(test_dataset, batch_size =args.test_batch_size, shuffle=False)
 
-net = Net(min_size, max_size, aspect_ratios, device)
+net = Net(min_size, max_size, aspect_ratios, device, phase='train')
 criterion = MultiBoxLoss(threshold, variances, neg_ratio, device)
 optimizer = optim.Adam(net.parameters(), lr=args.lr)
 
@@ -104,7 +104,7 @@ def train(epoch_idx):
         loss.backward()
         optimizer.step()
 
-        loss_loc += loss_l.detach().item()
+        loss_loc += loss_l.detach().item() # TODO: loss_loc is inf, check loss layer
         loss_conf += loss_c.detach().item()
 
         if idx % args.display_interval == 0:

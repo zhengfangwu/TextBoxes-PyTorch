@@ -48,7 +48,7 @@ class ICDARLabel(object):
 
 class ICDARDataset(torch.utils.data.Dataset):
 
-    def __init__(self, img_path, gt_path, img_h, img_w, train, mean=vgg_mean, std=vgg_std):
+    def __init__(self, img_path, gt_path, img_h, img_w, phase, mean=vgg_mean, std=vgg_std):
         super(ICDARDataset, self).__init__()
 
         self.img_path = img_path
@@ -57,7 +57,7 @@ class ICDARDataset(torch.utils.data.Dataset):
         self.std = std
         self.img_h = img_h
         self.img_w = img_w
-        self.train = train
+        self.phase = phase
 
         # prepare training datasets
         img_list = os.listdir(img_path)
@@ -225,19 +225,28 @@ class ICDARDataset(torch.utils.data.Dataset):
             boxes = boxes.copy()
             boxes[:, 0::2] = width - boxes[:, 2::-2]
 
-        # ToPercentCoords (ignored)
+        return image, boxes
+    
+    def preprocessing(self, image, boxes):
+        # ToPercentCoords
+        height, width, channels = image.shape
+        boxes[:, 0] = boxes[:, 0] / width
+        boxes[:, 2] = boxes[:, 2] / width
+        boxes[:, 1] = boxes[:, 1] / height
+        boxes[:, 3] = boxes[:, 3] / height
 
         # Resize(size)
         image = cv2.resize(image, (self.img_h, self.img_w))
 
         # SubtractMeans(mean)
         # image = (image - vgg_mean) / vgg_std
+        # since pytorch model version vgg takes [-1, 1] input
         image = (image / 255.0 - self.mean) / self.std
 
         return image, boxes
 
+
     def __getitem__(self, idx):
-        # TODO: train and test image inputs are different
         img_file = os.path.join(self.img_path, self.img_list[idx])
         image = cv2.imread(img_file)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -248,7 +257,9 @@ class ICDARDataset(torch.utils.data.Dataset):
         gt = [ICDARLabel(self.gt_list[idx], x) for x in gt_int]
         boxes = np.array([x.bbox for x in gt])
         
-        image, boxes = self.image_augmentation(image, boxes)
+        if self.phase == 'train':
+            image, boxes = self.image_augmentation(image, boxes)
+        image, boxes = self.preprocessing(image, boxes)
 
         image_t = torch.from_numpy(image.transpose(2, 0, 1)).float()
         boxes_t = torch.from_numpy(boxes).float()

@@ -29,14 +29,14 @@ class PriorBoxLayer(nn.Module):
     
     # note: flip not implemented
     # variance is not needed to generate prior boxes
-    def __init__(self, min_size, max_size, aspect_ratios, clip, use_cuda, round_up_bbox):
+    def __init__(self, min_size, max_size, aspect_ratios, clip, device, round_up_bbox):
         super(PriorBoxLayer, self).__init__()
 
         self.min_size = min_size
         self.max_size = max_size
         self.aspect_ratios = aspect_ratios
         self.clip = clip
-        self.use_cuda = use_cuda
+        self.device = device
         self.round_up_bbox = round_up_bbox # TODO
 
         self.num_priors = len(aspect_ratios) + 1
@@ -61,9 +61,6 @@ class PriorBoxLayer(nn.Module):
             # center_coord
             w = torch.arange(0, layer_width).view(1, -1).expand(layer_height, layer_width).float()
             h = torch.arange(0, layer_height).view(-1, 1).expand(layer_height, layer_width).float()
-            if self.use_cuda:
-                w = w.cuda()
-                h = h.cuda()
             center_x = (w + 0.5) * step_x
             center_y = (h + 0.5) * step_y
             center_coord = torch.stack((center_x, center_y, center_x, center_y), dim=2)
@@ -72,9 +69,6 @@ class PriorBoxLayer(nn.Module):
             # add_mask
             mask_add = torch.tensor(1.0).view(1, 1, 1)
             mask_minus = torch.tensor(-1.0).view(1, 1, 1)
-            if self.use_cuda:
-                mask_add = mask_add.cuda()
-                mask_minus = mask_minus.cuda()
             add_mask = torch.stack((mask_minus, mask_minus, mask_add, mask_add), dim=3)
             add_mask = add_mask.expand(layer_height, layer_width, self.num_priors, -1)
 
@@ -96,34 +90,31 @@ class PriorBoxLayer(nn.Module):
             box_height = torch.tensor(box_height).view(1, 1, -1)
             box_dim = torch.stack((box_width, box_height, box_width, box_height), dim=3)
             box_dim = box_dim.expand(layer_height, layer_width, -1, -1)
-            if self.use_cuda:
-                box_dim = box_dim.cuda()
 
             # img_dim
             img_w = torch.tensor(img_width).view(1, 1, 1).float()
             img_h = torch.tensor(img_height).view(1, 1, 1).float()
-            if self.use_cuda:
-                img_w = img_w.cuda()
-                img_h = img_h.cuda()
             img_dim = torch.stack((img_w, img_h, img_w, img_h), dim=3)
             img_dim = img_dim.expand(layer_height, layer_width, self.num_priors, -1)
 
             self.priors = (center_coord + add_mask * box_dim / 2.0) / img_dim
             if self.clip:
                 self.priors.clamp_(0.0, 1.0)
+
+            self.priors = self.priors.to(self.device)
         
         return self.priors
 
 
 class MultiBoxLoss(nn.Module):
 
-    def __init__(self, threshold, variances, neg_ratio, use_cuda):
+    def __init__(self, threshold, variances, neg_ratio, device):
         super(MultiBoxLoss, self).__init__()
 
         self.threshold = threshold
         self.variances = variances
         self.neg_ratio = neg_ratio
-        self.use_cuda = use_cuda
+        self.device = device
 
         self.num_classes = 2
 
@@ -146,7 +137,7 @@ class MultiBoxLoss(nn.Module):
         loc_t = []
         conf_t = []
         for loc, conf, target in zip(loc_data, conf_data, targets):
-            _loc, _conf = match(target, priors, self.threshold, self.variances, self.use_cuda)
+            _loc, _conf = match(target, priors, self.threshold, self.variances, self.device)
             loc_t.append(_loc)
             conf_t.append(_conf)
         loc_t = torch.stack(loc_t, dim=0) # batch_size * num_priors * 4

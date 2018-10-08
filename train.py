@@ -1,5 +1,5 @@
 import argparse
-import pprint
+import time
 
 import torch
 import torch.nn as nn
@@ -30,10 +30,9 @@ parser.add_argument('--resume_checkpoint_folder', type=str)
 # training
 parser.add_argument('--train_batch_size', type=int, required=True)
 parser.add_argument('--test_batch_size', type=int, default=1)
-parser.add_argument('--use_cuda', type=int, default=True)
 parser.add_argument('--epoches', type=int, required=True)
 parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--cuda', type=int, default=True)
+parser.add_argument('--cuda', type=int, default=1)
 parser.add_argument('--cuda_device_id', type=int, default=-1)
 parser.add_argument('--display_interval', type=int, default=10)
 # checkpoint
@@ -50,7 +49,7 @@ if args.cuda == 1:
         device = torch.device('cuda:' + str(args.cuda_device_id))
 else:
     device = torch.device('cpu')
-pprint.pprint(args)
+print(args)
 
 # 20% ~ 95% of image size
 min_size = [30, 60, 114, 168, 222, 276] 
@@ -63,39 +62,44 @@ if not os.path.exists(args.save_checkpoint_folder):
     os.mkdir(args.save_checkpoint_folder)
 neg_ratio = 3.0
 
-train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, args.img_h, args.img_w, use_cuda=args.use_cuda)
-test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, args.img_w, use_cuda=args.use_cuda)
-train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, num_workers=args.data_threads)
+train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, args.img_h, args.img_w)
+test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, args.img_w)
+train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, collate_fn=collate, num_workers=args.data_threads)
 test_dataloader = DataLoader(test_dataset, batch_size =args.test_batch_size, shuffle=False)
 
-net = Net(min_size, max_size, aspect_ratios, use_cuda=args.cuda)
-criterion = MultiBoxLoss(threshold, variances, neg_ratio, use_cuda=args.use_cuda)
+net = Net(min_size, max_size, aspect_ratios, device)
+criterion = MultiBoxLoss(threshold, variances, neg_ratio, device)
 optimizer = optim.Adam(net.parameters(), lr=args.lr)
 
 if args.resume == 0:
-    initialize(net)
+    initialize(net, args.load_vgg)
 else:
     args.epoches = load_checkpoint(args.resume_checkpoint_folder, net, optimizer)
 
 net.to(device)
 criterion.to(device)
-optimizer.to(device)
 
 def train(epoch_idx):
     net.train()
     loss_loc = 0.0
     loss_conf = 0.0
+    # load_start_time = time.time()
 
     for idx, (images, targets) in enumerate(train_dataloader, 1):
+        # print('load time', time.time() - load_start_time)
 
         optimizer.zero_grad()
         
         images = images.to(device)
-        targets = targets.to(device)
+        targets = [target.to(device) for target in targets]
         
+        # net_start_time = time.time()
         pred = net(images)
+        # print('net time', time.time() - net_start_time)
 
+        # loss_start_time = time.time()
         loss_l, loss_c = criterion(pred, targets)
+        # print('loss time', time.time() - loss_start_time)
         loss = loss_l + loss_c
         loss.backward()
         optimizer.step()
@@ -107,6 +111,14 @@ def train(epoch_idx):
             print('Epoch %d[%d/%d] loss_loc: %.6f loss_conf: %.6f' \
                 % (epoch_idx, idx, len(train_dataloader), \
                 loss_loc / args.display_interval, loss_conf / args.display_interval))
+            loss_loc = 0.0
+            loss_conf = 0.0
+        
+        # load_start_time = time.time()
+    
+    print('Epoch %d loss_loc: %.6f loss_conf: %.6f' \
+                % (epoch_idx,\
+                loss_loc / args.display_interval, loss_conf / args.display_interval))
 
 def test(epoch_idx):
     net.eval()
@@ -115,7 +127,7 @@ def test(epoch_idx):
     loss_total = 0.0
 
     with torch.no_grad():
-        for idx, (images, targets) in enumerate(test_dataloader, 1):
+        for (images, targets) in test_dataloader:
 
             images = images.to(device)
             targets = targets.to(device)
@@ -134,12 +146,15 @@ def test(epoch_idx):
                 loss_conf / len(test_dataloader),
                 loss_total / len(test_dataloader)))
 
-        
+
+# TODO: test need softmax and NMS at the end
 
 
 if __name__ == "__main__":
     for i in range(1, args.epoches+1):
         train(i)
         test(i)
-        save_checkpoint(i, args.save_checkpoint_folder, net, optimizer)
+        if i % args.save_checkpoint_interval == 0:
+            save_checkpoint(i, args.save_checkpoint_folder, net, optimizer)
+    save_checkpoint(i, args.save_checkpoint_folder, net, optimizer)
 

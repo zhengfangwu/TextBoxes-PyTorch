@@ -54,7 +54,7 @@ def encode(matches, priors, variances):
     return torch.cat(encode_bbox, dim=1)
 
 
-def match(gt, priors, threshold, variances, use_cuda):
+def match(gt, priors, threshold, variances, device):
     # Process one sample at a time since num_objects is different.
     # input:
     #   gt: num_objects * 4
@@ -81,8 +81,7 @@ def match(gt, priors, threshold, variances, use_cuda):
     # num_prior * 4
 
     conf = torch.ones(num_priors).long()
-    if use_cuda:
-        conf = conf.cuda()
+    conf = conf.to(device)
     conf[best_truth_overlap < threshold] = 0
     loc = encode(matches, priors, variances)
     # print(conf.size(), loc.size())
@@ -99,28 +98,30 @@ def init_weights(m):
         m.bias.data.zero_()
 
 def init_conv_layer(layer_a, layer_b):
-    layer_a.weight = layer_b.weight
-    layer_a.bias = layer_b.bias
+    # layer_a.weight.copy_(layer_b.weight.data.detach())
+    # layer_a.bias.cpoy_(layer_b.bias.data.detach())
+    layer_a.load_state_dict(layer_b.state_dict())
 
-def initialize(net):
+def initialize(net, load_vgg):
     net.apply(init_weights)
-    vgg = torchvision.models.vgg16(pretrained=True)
-    vgg = vgg.features
 
-    init_conv_layer(net.conv1_1, vgg[0])
-    init_conv_layer(net.conv1_2, vgg[2])
-    init_conv_layer(net.conv2_1, vgg[5])
-    init_conv_layer(net.conv2_2, vgg[7])
-    init_conv_layer(net.conv3_1, vgg[10])
-    init_conv_layer(net.conv3_2, vgg[12])
-    init_conv_layer(net.conv3_3, vgg[14])
-    init_conv_layer(net.conv4_1, vgg[17])
-    init_conv_layer(net.conv4_2, vgg[19])
-    init_conv_layer(net.conv4_3, vgg[21])
-    init_conv_layer(net.conv5_1, vgg[24])
-    init_conv_layer(net.conv5_2, vgg[26])
-    init_conv_layer(net.conv5_3, vgg[28])
-    print('test ok')
+    if load_vgg:
+        vgg = torchvision.models.vgg16(pretrained=True)
+        vgg = vgg.features
+
+        init_conv_layer(net.conv1_1, vgg[0])
+        init_conv_layer(net.conv1_2, vgg[2])
+        init_conv_layer(net.conv2_1, vgg[5])
+        init_conv_layer(net.conv2_2, vgg[7])
+        init_conv_layer(net.conv3_1, vgg[10])
+        init_conv_layer(net.conv3_2, vgg[12])
+        init_conv_layer(net.conv3_3, vgg[14])
+        init_conv_layer(net.conv4_1, vgg[17])
+        init_conv_layer(net.conv4_2, vgg[19])
+        init_conv_layer(net.conv4_3, vgg[21])
+        init_conv_layer(net.conv5_1, vgg[24])
+        init_conv_layer(net.conv5_2, vgg[26])
+        init_conv_layer(net.conv5_3, vgg[28])
 
 def save_checkpoint(epoch_idx, checkpoint_folder, net, optimizer):
     """ A comprehensive checkpoint saving function
@@ -140,3 +141,11 @@ def load_checkpoint(checkpoint_path, net, optimizer):
     net.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     return checkpoint['epoch']
+
+def collate(batch):
+    targets = []
+    images = []
+    for sample in batch:
+        images.append(sample[0])
+        targets.append(torch.FloatTensor(sample[1]))
+    return torch.stack(images, 0), targets

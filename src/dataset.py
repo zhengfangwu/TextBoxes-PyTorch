@@ -48,16 +48,16 @@ class ICDARLabel(object):
 
 class ICDARDataset(torch.utils.data.Dataset):
 
-    def __init__(self, img_path, gt_path, img_h, img_w, use_cuda=True, mean=vgg_mean, std=vgg_std):
+    def __init__(self, img_path, gt_path, img_h, img_w, train, mean=vgg_mean, std=vgg_std):
         super(ICDARDataset, self).__init__()
 
         self.img_path = img_path
         self.gt_path = gt_path
-        self.use_cuda = use_cuda
         self.mean = mean
         self.std = std
         self.img_h = img_h
         self.img_w = img_w
+        self.train = train
 
         # prepare training datasets
         img_list = os.listdir(img_path)
@@ -237,7 +237,7 @@ class ICDARDataset(torch.utils.data.Dataset):
         return image, boxes
 
     def __getitem__(self, idx):
-        
+        # TODO: train and test image inputs are different
         img_file = os.path.join(self.img_path, self.img_list[idx])
         image = cv2.imread(img_file)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -252,7 +252,4 @@ class ICDARDataset(torch.utils.data.Dataset):
 
         image_t = torch.from_numpy(image.transpose(2, 0, 1)).float()
         boxes_t = torch.from_numpy(boxes).float()
-        if self.use_cuda:
-            image_t = image_t.cuda()
-            boxes_t = boxes_t.cuda()
         return image_t, boxes_t

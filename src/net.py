@@ -6,14 +6,14 @@ from .layers import L2Norm, PriorBoxLayer
 
 class Net(torch.nn.Module):
 
-    def __init__(self, min_size, max_size, aspect_ratios, clip=True, use_cuda=True, round_up_bbox=False):
+    def __init__(self, min_size, max_size, aspect_ratios, device, clip=True, round_up_bbox=False):
         super(Net, self).__init__()
 
         self.min_size = min_size
         self.max_size = max_size
         self.aspect_ratios = aspect_ratios
         self.clip = clip
-        self.use_cuda = use_cuda
+        self.device = device
         self.round_up_bbox = round_up_bbox
 
         self.conv1_1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, padding=1)
@@ -74,15 +74,12 @@ class Net(torch.nn.Module):
             self.pool6_mbox_loc = nn.Conv2d(in_channels=256, out_channels=28, kernel_size=(1, 5), stride=(1, 1), padding=(0, 2))
 
 
-        self.conv4_3_norm_mbox_priorbox = PriorBoxLayer(min_size[0], max_size[0], aspect_ratios, clip, use_cuda, round_up_bbox)
-        self.fc7_mbox_priorbox = PriorBoxLayer(min_size[1], max_size[1], aspect_ratios, clip, use_cuda, round_up_bbox)
-        self.conv6_2_mbox_priorbox = PriorBoxLayer(min_size[2], max_size[2], aspect_ratios, clip, use_cuda, round_up_bbox)
-        self.conv7_2_mbox_priorbox = PriorBoxLayer(min_size[3], max_size[3], aspect_ratios, clip, use_cuda, round_up_bbox)
-        self.conv8_2_mbox_priorbox = PriorBoxLayer(min_size[4], max_size[4], aspect_ratios, clip, use_cuda, round_up_bbox)
-        self.pool6_mbox_priorbox = PriorBoxLayer(min_size[5], max_size[5], aspect_ratios, clip, use_cuda, round_up_bbox)
-
-        if use_cuda:
-            self.cuda()
+        self.conv4_3_norm_mbox_priorbox = PriorBoxLayer(min_size[0], max_size[0], aspect_ratios, clip, device, round_up_bbox)
+        self.fc7_mbox_priorbox = PriorBoxLayer(min_size[1], max_size[1], aspect_ratios, clip, device, round_up_bbox)
+        self.conv6_2_mbox_priorbox = PriorBoxLayer(min_size[2], max_size[2], aspect_ratios, clip, device, round_up_bbox)
+        self.conv7_2_mbox_priorbox = PriorBoxLayer(min_size[3], max_size[3], aspect_ratios, clip, device, round_up_bbox)
+        self.conv8_2_mbox_priorbox = PriorBoxLayer(min_size[4], max_size[4], aspect_ratios, clip, device, round_up_bbox)
+        self.pool6_mbox_priorbox = PriorBoxLayer(min_size[5], max_size[5], aspect_ratios, clip, device, round_up_bbox)
 
     def forward(self, input):
         # input: image, 3 x H x W

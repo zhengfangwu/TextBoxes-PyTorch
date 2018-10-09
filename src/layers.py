@@ -141,6 +141,7 @@ class MultiBoxLoss(nn.Module):
             loc_t.append(_loc)
             conf_t.append(_conf)
         loc_t = torch.stack(loc_t, dim=0) # batch_size * num_priors * 4
+        # print(loc_t.max())
         conf_t = torch.stack(conf_t, dim=0) # batch_size * num_priors
         # print('loc_t, conf_t', loc_t.size(), conf_t.size())
 
@@ -152,7 +153,9 @@ class MultiBoxLoss(nn.Module):
         pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, 4)
         # print('pos_idx', pos_idx.size())
         loc_p = loc_data[pos_idx].view(-1, 4)
+        # print('=========== loc_p max', loc_p.max())
         loc_t = loc_t[pos_idx].view(-1, 4)
+        # print('=========== loc_t max', loc_t.max())
         loss_loc = F.smooth_l1_loss(loc_p, loc_t)
 
         # Hard negative mining
@@ -179,4 +182,36 @@ class MultiBoxLoss(nn.Module):
         loss_conf /= N
 
         return loss_loc, loss_conf
+
+
+class DetectionOutput(nn.Module):
+
+    def __init__(self, conf_threshold, nms_threshold, topk):
+        super(DetectionOutput, self).__init__()
+
+        self.conf_threshold = conf_threshold
+        self.nms_threshold = nms_threshold
+        self.topk = topk
         
+        self.num_classes = 2
+        self.bkg_label = 0
+
+    def forward(self, loc_data, conf_data, priors):
+        """
+        Input:
+            loc_data: batch x num_priors x 4 (dx, dy, log_dw, log_dh)
+            conf_data: batch x num_priors x num_classes (2)
+            priors: num_priors x 4 (xmin, ymin, xmax, ymax)
+        """
+        batch_size = loc_data.size(0)
+        num_priors = priors.size(0)
+        assert loc_data.size(0) == num_priors, "loc_data should have the same number of priors"
+        assert conf_data.size(0) == num_priors, "conf_data should have the same number of priors"
+
+        conf_pred = conf_data.transpose(2, 1) # batch x num_classes (2) x num_priors
+
+        output = torch.zeros(batch_size, self.num_classes, self.topk, 4)
+
+        #TODO       
+
+        return

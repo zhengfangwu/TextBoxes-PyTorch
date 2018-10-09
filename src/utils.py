@@ -27,6 +27,8 @@ def encode(matches, priors, variances):
     # priors: num_priors * 4
     # variances: 4
     # return: num_priors * 4
+    print('============ matches', matches.max())
+    print('============ priors', priors.max())
 
     # prior_width = priors[:, :, 2] - priors[:, :, 0]
     # prior_height = priors[:, :, 3] - priors[:, :, 1]
@@ -54,6 +56,11 @@ def encode(matches, priors, variances):
     return torch.cat(encode_bbox, dim=1)
 
 
+def decode(loc, priors, variances):
+    # TODO
+    return
+
+
 def match(gt, priors, threshold, variances, device):
     # Process one sample at a time since num_objects is different.
     # input:
@@ -63,10 +70,15 @@ def match(gt, priors, threshold, variances, device):
     # output:
     #   loc: num_priors * 4 (dx, dw, log(per dh), log(per dw))
     #   conf: num_priors
+
+    # print('gt range', gt.min(), gt.max())
+    # print('priors range', priors.min(), priors.max())
+
     num_objects = gt.size(0)
     num_priors = priors.size(0)
 
     overlaps = jaccard(gt, priors) # num_gt * num_priors
+    # print('overlaps min:', overlaps.min(), ' max:', overlaps.max())
 
     # [num_gt] best prior for each groundtruth
     best_prior_overlap, best_prior_idx = torch.max(overlaps, dim=1, keepdim=False)
@@ -149,3 +161,7 @@ def collate(batch):
         images.append(sample[0])
         targets.append(torch.FloatTensor(sample[1]))
     return torch.stack(images, 0), targets
+
+def nms(boxes):
+    #TODO
+    return

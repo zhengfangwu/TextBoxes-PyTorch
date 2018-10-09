@@ -255,7 +255,7 @@ class ICDARDataset(torch.utils.data.Dataset):
         with open(gt_file) as f:
             gt_int = f.readlines()
         gt = [ICDARLabel(self.gt_list[idx], x) for x in gt_int]
-        boxes = np.array([x.bbox for x in gt])
+        boxes = np.array([x.bbox for x in gt], dtype=np.float32)
         
         if self.phase == 'train':
             image, boxes = self.image_augmentation(image, boxes)

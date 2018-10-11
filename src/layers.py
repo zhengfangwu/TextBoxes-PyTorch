@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import match, log_sum_exp
+from .utils import match, log_sum_exp, nms, decode
 
 class L2Norm(nn.Module):
 
@@ -186,11 +186,12 @@ class MultiBoxLoss(nn.Module):
 
 class DetectionOutput(nn.Module):
 
-    def __init__(self, conf_threshold, nms_threshold, topk):
+    def __init__(self, conf_threshold, nms_threshold, variances, topk):
         super(DetectionOutput, self).__init__()
 
         self.conf_threshold = conf_threshold
         self.nms_threshold = nms_threshold
+        self.variances = variances
         self.topk = topk
         
         self.num_classes = 2
@@ -205,13 +206,30 @@ class DetectionOutput(nn.Module):
         """
         batch_size = loc_data.size(0)
         num_priors = priors.size(0)
-        assert loc_data.size(0) == num_priors, "loc_data should have the same number of priors"
-        assert conf_data.size(0) == num_priors, "conf_data should have the same number of priors"
+        assert loc_data.size(1) == num_priors, "loc_data should have the same number of priors"
+        assert conf_data.size(1) == num_priors, "conf_data should have the same number of priors"
 
         conf_pred = conf_data.transpose(2, 1) # batch x num_classes (2) x num_priors
 
-        output = torch.zeros(batch_size, self.num_classes, self.topk, 4)
+        output = torch.zeros(batch_size, self.num_classes, self.topk, 5)
 
-        #TODO       
+        for i, (loc, conf) in enumerate(zip(loc_data, conf_pred)):
+            decode_bbox = decode(loc, priors, self.variances) # num_priors * 4 (xmin, ymin, xmax, ymax)
+            
+            # TextBoxes localization only have two labels (background and text)
+            conf_mask = conf[1].gt(self.conf_threshold) # num_priors
+            scores = conf[1][conf_mask]
+            if scores.numel() == 0:
+                continue
+            bbox_mask = conf_mask.unsqueeze(1).expand_as(decode_bbox) # num_priors * 4
+            bbox = decode_bbox[bbox_mask].view(-1, 4)
+            idx, count = nms(bbox, scores, self.nms_threshold, self.topk)
 
-        return
+            output[i, 1, :count] = torch.cat((scores[idx[:count]].unsqueeze(1), \
+                                    bbox[idx[:count]]), 1)
+        
+        flat = output.contiguous().view(batch_size, -1, 5)
+        _, idx = flat[:, :, 0].sort(1, descending=True)
+        _, rank = idx.sort(1)
+        flat[(rank < self.topk).unsqueeze(-1).expand_as(flat)].fill_(0)
+        return output

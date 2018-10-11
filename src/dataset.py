@@ -250,6 +250,7 @@ class ICDARDataset(torch.utils.data.Dataset):
         img_file = os.path.join(self.img_path, self.img_list[idx])
         image = cv2.imread(img_file)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        original_image = image.copy()
         
         gt_file = os.path.join(self.gt_path, self.gt_list[idx])
         with open(gt_file) as f:
@@ -263,4 +264,7 @@ class ICDARDataset(torch.utils.data.Dataset):
 
         image_t = torch.from_numpy(image.transpose(2, 0, 1)).float()
         boxes_t = torch.from_numpy(boxes).float()
-        return image_t, boxes_t
+        if self.phase == 'train':
+            return 'train', image_t, boxes_t
+        elif self.phase == 'test':
+            return 'test', original_image, image_t, boxes_t

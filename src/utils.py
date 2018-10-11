@@ -27,8 +27,6 @@ def encode(matches, priors, variances):
     # priors: num_priors * 4
     # variances: 4
     # return: num_priors * 4
-    print('============ matches', matches.max())
-    print('============ priors', priors.max())
 
     # prior_width = priors[:, :, 2] - priors[:, :, 0]
     # prior_height = priors[:, :, 3] - priors[:, :, 1]
@@ -58,7 +56,25 @@ def encode(matches, priors, variances):
 
 def decode(loc, priors, variances):
     # TODO
-    return
+    """
+    Input:
+        loc: num_priors * 4
+        priors: num_priors * 4
+        variances: 4
+    Return:
+        decode_bbox: num_priors * 4 (xmin, ymin, xmax, ymax)
+    """
+    prior_wh = priors[:, 2:] - priors[:, :2]
+    prior_cxy = (priors[:, :2] + priors[:, 2:]) / 2.0
+
+    bbox_cxy = prior_cxy + loc[:, :2] * variances[:2] * prior_wh
+    bbox_wh = prior_wh * torch.exp(loc[:, 2:] * variances[2:])
+
+    decode_bbox = torch.cat([bbox_cxy, bbox_wh], dim=1)
+    decode_bbox[:, :2] -= decode_bbox[:, 2:] / 2
+    decode_bbox[:, 2:] += decode_bbox[:, :2]
+
+    return decode_bbox
 
 
 def match(gt, priors, threshold, variances, device):
@@ -157,11 +173,61 @@ def load_checkpoint(checkpoint_path, net, optimizer):
 def collate(batch):
     targets = []
     images = []
+    original_images = []
+    flag = ''
     for sample in batch:
-        images.append(sample[0])
-        targets.append(torch.FloatTensor(sample[1]))
-    return torch.stack(images, 0), targets
+        if sample[0] == 'train':
+            flag = 'train'
+            images.append(sample[1])
+            targets.append(torch.FloatTensor(sample[2]))
+        elif sample[0] == 'test':
+            flag = 'test'
+            original_images.append(sample[1])
+            images.append(sample[2])
+            targets.append(torch.FloatTensor(sample[3]))
+    if flag == 'train':
+        return torch.stack(images, 0), targets
+    elif flag == 'test':
+        return original_images, torch.stack(images, 0), targets
 
-def nms(boxes):
-    #TODO
-    return
+def nms(bbox, scores, overlap_threshold, topk):
+    """
+    Input:
+        bbox: num_priors x 4
+        scores: num_priors
+        overlap_threshold: threshold for IoU score
+        topk: maximum numver of box predictions to consider
+    """
+    keep = scores.new(scores.size(0)).zero_().long()
+    if bbox.numel() == 0:
+        return keep
+    
+    x1 = bbox[:, 0]
+    y1 = bbox[:, 1]
+    x2 = bbox[:, 2]
+    y2 = bbox[:, 3]
+    area = (x2 - x1) * (y2 - y1)
+    y, idx = scores.sort(0) # ascending
+    idx = idx[-topk:]
+
+    count = 0
+    while idx.numel() > 0:
+        i = idx[-1]
+        keep[count] = i
+        count += 1
+        if idx.size(0) == 1:
+            break
+        idx = idx[:-1]
+        xx1 = torch.index_select(x1, 0, idx)
+        yy1 = torch.index_select(y1, 0, idx)
+        xx2 = torch.index_select(x2, 0, idx)
+        yy2 = torch.index_select(y2, 0, idx)
+        w = (xx2 - xx1).clamp(min = 0.0)
+        h = (yy2 - yy1).clamp(min = 0.0)
+        inter = w * h
+        remain_areas = torch.index_select(area, 0, idx)
+        union = (remain_areas - inter) + area[i]
+        IoU = inter / union
+        idx = idx[IoU.le(overlap_threshold)]
+        
+    return keep, count

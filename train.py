@@ -65,11 +65,14 @@ neg_ratio = 3.0
 train_dataset = ICDARDataset(args.train_img_path, args.train_gt_path, args.img_h, args.img_w, 'train')
 test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, args.img_w, 'test')
 train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, collate_fn=collate, num_workers=args.data_threads)
-test_dataloader = DataLoader(test_dataset, batch_size =args.test_batch_size, shuffle=False)
+test_dataloader = DataLoader(test_dataset, batch_size =args.test_batch_size, shuffle=False, collate_fn=collate)
 
 net = Net(min_size, max_size, aspect_ratios, device, phase='train')
 criterion = MultiBoxLoss(threshold, variances, neg_ratio, device)
 optimizer = optim.Adam(net.parameters(), lr=args.lr)
+
+# eval module
+detect_output = DetectionOutput(0.01, 0.45, variances, 200)
 
 if args.resume == 0:
     initialize(net, args.load_vgg)
@@ -126,28 +129,51 @@ def test(epoch_idx):
     loss_conf = 0.0
     loss_total = 0.0
 
+    num_annotated_image = 4
+    path_annotated_image = './test_image'
+
     with torch.no_grad():
-        for (images, targets) in test_dataloader:
+        for i, (original_images, images, targets) in enumerate(test_dataloader):
 
             images = images.to(device)
-            targets = targets.to(device)
+            targets = [target.to(device) for target in targets]
 
-            pred = net(images)
+            loc, conf, priors = net(images)
 
-            loss_l, loss_c = criterion(pred, targets)
+            # additional eval module
+            outputs = detect_output(loc, F.softmax(conf, dim=-1), priors)
+
+            # calculate loss
+            loss_l, loss_c = criterion((loc, conf, priors), targets)
             loss = loss_l + loss_c
 
             loss_loc += loss_l.detach().item()
             loss_conf += loss_c.detach().item()
             loss_total += loss.detach().item()
+
+            # display and save tested images
+            if (i + 1) * args.test_batch_size <= num_annotated_image:
+                for j, (image, output) in enumerate(zip(original_images, outputs)):
+                    filename = os.path.join(path_annotated_image, \
+                                            'epoch%d_%03d.jpg' % (epoch_idx, i * args.test_batch_size + j))
+                    output_np = output[1].detach().numpy()
+                    p = 0
+                    while (output_np[p, 0] > 0.6):
+                        xmin = output_np[p, 1]
+                        ymin = output_np[p, 2]
+                        xmax = output_np[p, 3]
+                        ymax = output_np[p, 4]
+                        cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (255, 0, 0), thickness=3)
+                        cv2.putText(image, '%.2f' % output_np[p, 0], (xmin, ymin), \
+                                cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), thickness=2)
+                        p += 1
+                    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+                    cv2.imwrite(filename, image)
         
         print('Test Epoch %d: loss_loc: %.6f loss_conf: %.6f loss_total %.6f' \
             % (epoch_idx, loss_loc / len(test_dataloader),
                 loss_conf / len(test_dataloader),
                 loss_total / len(test_dataloader)))
-
-
-# TODO: test need softmax and NMS at the end
 
 
 if __name__ == "__main__":
@@ -156,5 +182,5 @@ if __name__ == "__main__":
         test(i)
         if i % args.save_checkpoint_interval == 0:
             save_checkpoint(i, args.save_checkpoint_folder, net, optimizer)
-    save_checkpoint(i, args.save_checkpoint_folder, net, optimizer)
+    save_checkpoint('final', args.save_checkpoint_folder, net, optimizer)
 

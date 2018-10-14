@@ -23,39 +23,25 @@ def jaccard(box_a, box_b):
     return intersec / (area_a + area_b - intersec)
 
 def encode(matches, priors, variances):
-    # matches: num_priors * 4
-    # priors: num_priors * 4
-    # variances: 4
+    # matches: num_priors * 4 (xmin, ymin, xmax, ymax)
+    # priors: num_priors * 4 (xmin, ymin, xmax, ymax)
+    # variances: 4 (to align scale between offset and coordinates)
     # return: num_priors * 4
 
-    # prior_width = priors[:, :, 2] - priors[:, :, 0]
-    # prior_height = priors[:, :, 3] - priors[:, :, 1]
     prior_wh = priors[:, 2:] - priors[:, :2]
-    # prior_center_x = (priors[:, :, 0] + priors[:, :, 2]) / 2.0
-    # prior_center_y = (priors[:, :, 1] + priors[:, :, 3]) / 2.0
     prior_cxy = (priors[:, :2] + priors[:, 2:]) / 2.0
 
-    # bbox_width = matches[:, :, 2] - matches[:, :, 0]
-    # bbox_height = matches[:, :, 3] - matches[:, :, 1]
     bbox_wh = matches[:, 2:] - matches[:, :2]
-    # bbox_center_x = (matches[:, :, 0] + matches[:, :, 2]) / 2.0
-    # bbox_center_y = (matches[:, :, 1] + matches[:, :, 3]) / 2.0
     bbox_cxy = (matches[:, :2] + matches[:, 2:]) / 2.0
 
     encode_bbox = []
-    # encode_bbox.append((bbox_center_x - prior_center_x) / (prior_width * variances[0]))
-    # encode_bbox.append((bbox_center_y - prior_center_y) / (prior_height * variances[1]))
     encode_bbox.append((bbox_cxy - prior_cxy) / (prior_wh * variances[:2]))
-    # encode_bbox.append((torch.log(bbox_width / prior_width) / variances[2]))
-    # encode_bbox.append((torch.log(bbox_height / prior_height) / variances[3]))
     encode_bbox.append(torch.log(bbox_wh / prior_wh) / variances[2:])
-
-    # return torch.stack(encode_bbox, dim=2)
+    
     return torch.cat(encode_bbox, dim=1)
 
 
 def decode(loc, priors, variances):
-    # TODO
     """
     Input:
         loc: num_priors * 4
@@ -101,7 +87,8 @@ def match(gt, priors, threshold, variances, device):
     # [num_priors] best object for each prior
     best_truth_overlap, best_truth_idx = torch.max(overlaps, dim=0, keepdim=False)
     
-    best_truth_overlap.index_fill_(0, best_prior_idx, 1.1)
+    # For each groundtruth box, match the best matching prior box
+    best_truth_overlap.index_fill_(0, best_prior_idx, 2)
     for j in range(best_prior_idx.size(0)):
         best_truth_idx[best_prior_idx[j]] = j
     
@@ -130,6 +117,10 @@ def init_conv_layer(layer_a, layer_b):
     # layer_a.bias.cpoy_(layer_b.bias.data.detach())
     layer_a.load_state_dict(layer_b.state_dict())
 
+def freeze_conv_layer(layer):
+    layer.weight.requires_grad = False
+    layer.bias.requires_grad = False
+
 def initialize(net, load_vgg):
     net.apply(init_weights)
 
@@ -151,13 +142,18 @@ def initialize(net, load_vgg):
         init_conv_layer(net.conv5_2, vgg[26])
         init_conv_layer(net.conv5_3, vgg[28])
 
+        freeze_conv_layer(net.conv1_1)
+        freeze_conv_layer(net.conv1_2)
+        freeze_conv_layer(net.conv2_1)
+        freeze_conv_layer(net.conv2_2)
+
 def save_checkpoint(epoch_idx, checkpoint_folder, net, optimizer):
     """ A comprehensive checkpoint saving function
     """
     checkpoint = {
         'epoch': epoch_idx,
         'model_state_dict': net.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict()
+        # 'optimizer_state_dict': optimizer.state_dict()
     }
     checkpoint_path = os.path.join(checkpoint_folder, 'checkpoint_epoch' + str(epoch_idx))
     torch.save(checkpoint, checkpoint_path)
@@ -167,28 +163,8 @@ def load_checkpoint(checkpoint_path, net, optimizer):
     """
     checkpoint = torch.load(checkpoint_path)
     net.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     return checkpoint['epoch']
-
-def collate(batch):
-    targets = []
-    images = []
-    original_images = []
-    flag = ''
-    for sample in batch:
-        if sample[0] == 'train':
-            flag = 'train'
-            images.append(sample[1])
-            targets.append(torch.FloatTensor(sample[2]))
-        elif sample[0] == 'test':
-            flag = 'test'
-            original_images.append(sample[1])
-            images.append(sample[2])
-            targets.append(torch.FloatTensor(sample[3]))
-    if flag == 'train':
-        return torch.stack(images, 0), targets
-    elif flag == 'test':
-        return original_images, torch.stack(images, 0), targets
 
 def nms(bbox, scores, overlap_threshold, topk):
     """
@@ -209,6 +185,13 @@ def nms(bbox, scores, overlap_threshold, topk):
     area = (x2 - x1) * (y2 - y1)
     y, idx = scores.sort(0) # ascending
     idx = idx[-topk:]
+    
+    xx1 = bbox.new()
+    yy1 = bbox.new()
+    xx2 = bbox.new()
+    yy2 = bbox.new()
+    w = bbox.new()
+    h = bbox.new()
 
     count = 0
     while idx.numel() > 0:
@@ -218,12 +201,22 @@ def nms(bbox, scores, overlap_threshold, topk):
         if idx.size(0) == 1:
             break
         idx = idx[:-1]
-        xx1 = torch.index_select(x1, 0, idx)
-        yy1 = torch.index_select(y1, 0, idx)
-        xx2 = torch.index_select(x2, 0, idx)
-        yy2 = torch.index_select(y2, 0, idx)
+        torch.index_select(x1, 0, idx, out=xx1)
+        torch.index_select(y1, 0, idx, out=yy1)
+        torch.index_select(x2, 0, idx, out=xx2)
+        torch.index_select(y2, 0, idx, out=yy2)
+        
+        xx1 = torch.clamp(xx1, min=x1[i])
+        yy1 = torch.clamp(yy1, min=y1[i])
+        xx2 = torch.clamp(xx2, max=x2[i])
+        yy2 = torch.clamp(yy2, max=y2[i])
+
+        w.resize_as_(xx2)
+        h.resize_as_(yy2)
+
         w = (xx2 - xx1).clamp(min = 0.0)
         h = (yy2 - yy1).clamp(min = 0.0)
+        
         inter = w * h
         remain_areas = torch.index_select(area, 0, idx)
         union = (remain_areas - inter) + area[i]

@@ -31,6 +31,26 @@ def jaccard_numpy(box_a, box_b):
     union = area_a + area_b - inter
     return inter / union
 
+def collate(batch):
+    targets = []
+    images = []
+    original_images = []
+    flag = ''
+    for sample in batch:
+        if sample[0] == 'train':
+            flag = 'train'
+            images.append(sample[1])
+            targets.append(torch.FloatTensor(sample[2]))
+        elif sample[0] == 'test':
+            flag = 'test'
+            original_images.append(sample[1])
+            images.append(sample[2])
+            targets.append(torch.FloatTensor(sample[3]))
+    if flag == 'train':
+        return torch.stack(images, 0), targets
+    elif flag == 'test':
+        return original_images, torch.stack(images, 0), targets
+
 class ICDARLabel(object):
 
     def __init__(self, idx, string):
@@ -44,7 +64,7 @@ class ICDARLabel(object):
     
     def __str__(self):
         return 'Img: %s Label: %s at (%d, %d, %d, %d)' % (self.idx, self.text,\
-            self.bbox[0].item(), self.bbox[1].item(), self.bbox[2].item(), self.bbox[3].item())
+            self.bbox[0], self.bbox[1], self.bbox[2], self.bbox[3])
 
 class ICDARDataset(torch.utils.data.Dataset):
 
@@ -251,6 +271,7 @@ class ICDARDataset(torch.utils.data.Dataset):
         image = cv2.imread(img_file)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         original_image = image.copy()
+        image = image.astype(np.float32)
         
         gt_file = os.path.join(self.gt_path, self.gt_list[idx])
         with open(gt_file) as f:
@@ -258,8 +279,8 @@ class ICDARDataset(torch.utils.data.Dataset):
         gt = [ICDARLabel(self.gt_list[idx], x) for x in gt_int]
         boxes = np.array([x.bbox for x in gt], dtype=np.float32)
         
-        if self.phase == 'train':
-            image, boxes = self.image_augmentation(image, boxes)
+        # if self.phase == 'train':
+        #     image, boxes = self.image_augmentation(image, boxes)
         image, boxes = self.preprocessing(image, boxes)
 
         image_t = torch.from_numpy(image.transpose(2, 0, 1)).float()
@@ -268,3 +289,13 @@ class ICDARDataset(torch.utils.data.Dataset):
             return 'train', image_t, boxes_t
         elif self.phase == 'test':
             return 'test', original_image, image_t, boxes_t
+    
+
+
+if __name__ == "__main__":
+    dataset = ICDARDataset('../data/Small_Images', '../data/Small_GT', 300, 300, 'train')
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, collate_fn=collate)
+
+    for images, targets in dataloader:
+        print(images)
+        print(targets)

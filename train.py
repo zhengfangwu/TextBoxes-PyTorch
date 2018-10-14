@@ -67,12 +67,12 @@ test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, a
 train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, collate_fn=collate, num_workers=args.data_threads)
 test_dataloader = DataLoader(test_dataset, batch_size =args.test_batch_size, shuffle=False, collate_fn=collate)
 
-net = Net(min_size, max_size, aspect_ratios, device, phase='train')
+net = Net(min_size, max_size, aspect_ratios, device)
 criterion = MultiBoxLoss(threshold, variances, neg_ratio, device)
 optimizer = optim.Adam(net.parameters(), lr=args.lr)
 
 # eval module
-detect_output = DetectionOutput(0.01, 0.45, variances, 200)
+detect_output = DetectionOutput(0.01, 0.45, variances, 5)
 
 if args.resume == 0:
     initialize(net, args.load_vgg)
@@ -130,7 +130,7 @@ def test(epoch_idx):
     loss_total = 0.0
 
     num_annotated_image = 4
-    path_annotated_image = './test_image'
+    path_annotated_image = './test_result'
 
     with torch.no_grad():
         for i, (original_images, images, targets) in enumerate(test_dataloader):
@@ -154,21 +154,26 @@ def test(epoch_idx):
             # display and save tested images
             if (i + 1) * args.test_batch_size <= num_annotated_image:
                 for j, (image, output) in enumerate(zip(original_images, outputs)):
+                    height, width, channel = image.shape
                     filename = os.path.join(path_annotated_image, \
                                             'epoch%d_%03d.jpg' % (epoch_idx, i * args.test_batch_size + j))
                     output_np = output[1].detach().numpy()
                     p = 0
                     while (output_np[p, 0] > 0.6):
-                        xmin = output_np[p, 1]
-                        ymin = output_np[p, 2]
-                        xmax = output_np[p, 3]
-                        ymax = output_np[p, 4]
+                        xmin = int(output_np[p, 1] * height)
+                        ymin = int(output_np[p, 2] * width)
+                        xmax = int(output_np[p, 3] * height)
+                        ymax = int(output_np[p, 4] * width)
+                        # print(xmin, ymin, xmax, ymax)
                         cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (255, 0, 0), thickness=3)
-                        cv2.putText(image, '%.2f' % output_np[p, 0], (xmin, ymin), \
-                                cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), thickness=2)
+                        cv2.putText(image, '%.2f (%d, %d, %d, %d)' % (output_np[p, 0], xmin, ymin, xmax, ymax), (xmin, ymin), \
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), thickness=1)
                         p += 1
                     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(filename, image)
+
+
+                    # TOO much bbox annotation!!! Need check correctness (LR should be smaller)
         
         print('Test Epoch %d: loss_loc: %.6f loss_conf: %.6f loss_total %.6f' \
             % (epoch_idx, loss_loc / len(test_dataloader),

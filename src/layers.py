@@ -105,6 +105,17 @@ class PriorBoxLayer(nn.Module):
         
         return self.priors
 
+if __name__ == "__main__":
+
+    # test PriorBoxLayer
+    prior_box = PriorBoxLayer(5, 10, [2, 3], True, torch.device('cuda:0'), False)
+    img = torch.randn(1, 3, 30, 30)
+    feature = torch.randn(1, 5, 4 , 4)
+    priors = prior_box.forward(img, feature)
+    torch.set_printoptions(edgeitems=5)
+    print(priors.size())
+    print(priors)
+
 
 class MultiBoxLoss(nn.Module):
 
@@ -128,6 +139,13 @@ class MultiBoxLoss(nn.Module):
 
         loc_data, conf_data, priors = predictions
 
+        # print(len(targets))
+        # print('==== priors: min:', priors.min(), 'max:', priors.max())
+        # print('==== targets: ', end='')
+        # for target in targets:
+        #     print('min:', target.min(), 'max:', target.max(), end='')
+        # print('')
+
         batch_size = loc_data.size(0)
         num_priors = loc_data.size(1)
         # dim check
@@ -136,7 +154,7 @@ class MultiBoxLoss(nn.Module):
 
         loc_t = []
         conf_t = []
-        for loc, conf, target in zip(loc_data, conf_data, targets):
+        for target in targets:
             _loc, _conf = match(target, priors, self.threshold, self.variances, self.device)
             loc_t.append(_loc)
             conf_t.append(_conf)
@@ -149,7 +167,6 @@ class MultiBoxLoss(nn.Module):
 
         # Localization loss
         # print('pos', pos.size())
-        # print('targets', targets.size())
         pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, 4)
         # print('pos_idx', pos_idx.size())
         loc_p = loc_data[pos_idx].view(-1, 4)
@@ -160,15 +177,17 @@ class MultiBoxLoss(nn.Module):
 
         # Hard negative mining
         score = log_sum_exp(conf_data) # batch_size * num_priors
-        score -= (conf_data.view(batch_size, -1, self.num_classes).gather(2, conf_t.view(batch_size, -1, 1))).squeeze(2)
+        score -= (conf_data.view(batch_size, -1, self.num_classes)\
+                .gather(2, conf_t.view(batch_size, -1, 1))).squeeze(2)
+        # print('score max:', score.max(), 'score min:', score.min())
 
         score[pos] = 0
         _, score_idx = score.sort(1, descending=True) # batch_size * num_priors
-        _, idx_rank = score_idx.sort(1)
+        _, idx_rank = score_idx.sort(1) # batch_size * num_priors
 
-        num_pos = pos.sum(1, keepdim=True)
-        num_neg = torch.clamp(self.neg_ratio * num_pos, max=pos.size(1) - 1)
-        neg = idx_rank < num_neg.expand_as(idx_rank)
+        num_pos = pos.sum(1, keepdim=True) # [batch_size]
+        num_neg = torch.clamp(self.neg_ratio * num_pos, max=pos.size(1) - 1) # [batch_size]
+        neg = idx_rank < num_neg.expand_as(idx_rank) # batch_size * num_priors
 
         # Confidence loss including positive and negative examples
         pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, self.num_classes)
@@ -209,9 +228,10 @@ class DetectionOutput(nn.Module):
         assert loc_data.size(1) == num_priors, "loc_data should have the same number of priors"
         assert conf_data.size(1) == num_priors, "conf_data should have the same number of priors"
 
-        conf_pred = conf_data.transpose(2, 1) # batch x num_classes (2) x num_priors
+        conf_pred = conf_data.transpose(2, 1).contiguous() # batch x num_classes (2) x num_priors
 
         output = torch.zeros(batch_size, self.num_classes, self.topk, 5)
+        # print('output', output.size())
 
         for i, (loc, conf) in enumerate(zip(loc_data, conf_pred)):
             decode_bbox = decode(loc, priors, self.variances) # num_priors * 4 (xmin, ymin, xmax, ymax)
@@ -228,8 +248,17 @@ class DetectionOutput(nn.Module):
             output[i, 1, :count] = torch.cat((scores[idx[:count]].unsqueeze(1), \
                                     bbox[idx[:count]]), 1)
         
-        flat = output.contiguous().view(batch_size, -1, 5)
+        # TODO: error here, to be fixed
+        flat = output.view(batch_size, -1, 5) # batch x (2*topk) x 5
+        # print('flat', flat.size())
         _, idx = flat[:, :, 0].sort(1, descending=True)
         _, rank = idx.sort(1)
+        # print('rank', rank.size())
+        # print((flat == 0).sum(), end=' ')
+        # print((rank < self.topk).sum())
         flat[(rank < self.topk).unsqueeze(-1).expand_as(flat)].fill_(0)
+        # print((flat == 0).sum())
+        # output = flat[(rank < self.topk).unsqueeze(-1).expand_as(flat)].fill_(0)
+        # print(output.size()) # 1000
+        # output = output.view(batch_size, self.num_classes, self.topk, 5)
         return output

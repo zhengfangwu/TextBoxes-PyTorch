@@ -6,12 +6,13 @@ from .layers import L2Norm, PriorBoxLayer
 
 class Net(torch.nn.Module):
 
-    def __init__(self, min_size, max_size, aspect_ratios, device, phase, clip=True, round_up_bbox=False):
+    def __init__(self, min_size, max_size, aspect_ratios, global_pooling=True, device=torch.device('cuda:0'), clip=True, round_up_bbox=False):
         super(Net, self).__init__()
 
         self.min_size = min_size
         self.max_size = max_size
         self.aspect_ratios = aspect_ratios
+        self.global_pooling = global_pooling
         self.clip = clip
         self.device = device
         self.round_up_bbox = round_up_bbox
@@ -25,6 +26,7 @@ class Net(torch.nn.Module):
         self.conv3_1 = nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, padding=1)
         self.conv3_2 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1)
         self.conv3_3 = nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, padding=1)
+        # self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
         self.conv4_1 = nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, padding=1)
         self.conv4_2 = nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1)
@@ -137,26 +139,33 @@ class Net(torch.nn.Module):
         conv8_2 = self.conv8_2(conv8_1_relu)
         conv8_2_relu = F.relu(conv8_2, inplace=True)    # 5th feature map
 
-        # global avg. pooling
-        kH = conv8_2_relu.size(2)
-        kW = conv8_2_relu.size(3)
-        pool6 = F.avg_pool2d(conv8_2_relu, kernel_size=(kH, kW))    # 6th feature map
+        if self.global_pooling:
+            # global avg. pooling
+            kH = conv8_2_relu.size(2)
+            kW = conv8_2_relu.size(3)
+            pool6 = F.avg_pool2d(conv8_2_relu, kernel_size=(kH, kW))    # 6th feature map
+        else:
+            pool6 = conv8_2_relu
 
+        # conf
         conv4_3_norm_mbox_conf_flat = self.conv4_3_norm_mbox_conf(conv4_3_norm).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         fc7_mbox_conf_flat = self.fc7_mbox_conf(relu7).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         conv6_2_mbox_conf_flat = self.conv6_2_mbox_conf(conv6_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         conv7_2_mbox_conf_flat = self.conv7_2_mbox_conf(conv7_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         conv8_2_mbox_conf_flat = self.conv8_2_mbox_conf(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         pool6_mbox_conf_flat = self.pool6_mbox_conf(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        
         mbox_conf = torch.cat([conv4_3_norm_mbox_conf_flat, fc7_mbox_conf_flat, conv6_2_mbox_conf_flat, conv7_2_mbox_conf_flat, conv8_2_mbox_conf_flat, pool6_mbox_conf_flat], 1)
         mbox_conf_flatten = F.softmax(mbox_conf.view(batch_size, -1, 2), dim=2).view(batch_size, -1, 2)
 
+        # loc
         conv4_3_norm_mbox_loc_flat = self.conv4_3_norm_mbox_loc(conv4_3_norm).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         fc7_mbox_loc_flat = self.fc7_mbox_loc(relu7).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         conv6_2_mbox_loc_flat = self.conv6_2_mbox_loc(conv6_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         conv7_2_mbox_loc_flat = self.conv7_2_mbox_loc(conv7_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         conv8_2_mbox_loc_flat = self.conv8_2_mbox_loc(conv8_2_relu).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
         pool6_mbox_loc_flat = self.pool6_mbox_loc(pool6).permute(0, 2, 3, 1).contiguous().view(batch_size, -1)
+        
         mbox_loc = torch.cat([conv4_3_norm_mbox_loc_flat, fc7_mbox_loc_flat, conv6_2_mbox_loc_flat, conv7_2_mbox_loc_flat, conv8_2_mbox_loc_flat, pool6_mbox_loc_flat], 1)
         mbox_loc_flatten = F.softmax(mbox_loc.view(batch_size, -1, 4), dim=2).view(batch_size, -1, 4)
 
@@ -178,7 +187,7 @@ if __name__ == "__main__":
     min_size = [30, 60, 114, 168, 222, 276] 
     max_size = [None, 114, 167, 222, 276, 330]
     aspect_ratios = [2, 3, 5, 7, 10]
-    net = Net(min_size, max_size, aspect_ratios, phase='train')
+    net = Net(min_size, max_size, aspect_ratios)
     input = torch.Tensor(1, 3, 300, 300).cuda()
     output = net(input)
     print(output[0].size())

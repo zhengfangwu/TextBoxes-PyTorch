@@ -7,7 +7,11 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torch.optim as optim
 
+import matplotlib.pyplot as plt
+
 from src import *
+
+torch.set_printoptions(edgeitems=5)
 
 parser = argparse.ArgumentParser(description='Training argument.')
 
@@ -27,7 +31,7 @@ parser.add_argument('--load_vgg', type=int, default=1)
 parser.add_argument('--resume', type=int, default=0)
 parser.add_argument('--resume_checkpoint_folder', type=str)
 
-# training
+# training 
 parser.add_argument('--train_batch_size', type=int, required=True)
 parser.add_argument('--test_batch_size', type=int, default=1)
 parser.add_argument('--epoches', type=int, required=True)
@@ -67,7 +71,7 @@ test_dataset = ICDARDataset(args.test_img_path, args.test_gt_path, args.img_h, a
 train_dataloader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=args.shuffle, collate_fn=collate, num_workers=args.data_threads)
 test_dataloader = DataLoader(test_dataset, batch_size =args.test_batch_size, shuffle=False, collate_fn=collate)
 
-net = Net(min_size, max_size, aspect_ratios, device)
+net = Net(min_size, max_size, aspect_ratios, device=device, global_pooling=False)
 criterion = MultiBoxLoss(threshold, variances, neg_ratio, device)
 optimizer = optim.Adam(net.parameters(), lr=args.lr)
 
@@ -97,8 +101,17 @@ def train(epoch_idx):
         targets = [target.to(device) for target in targets]
         
         # net_start_time = time.time()
-        pred = net(images)
+        pred = net(images) # loc, conf, priors
         # print('net time', time.time() - net_start_time)
+        
+        _min = 10000
+        _max = 0
+        for target in targets:
+            if target.min() < _min:
+                _min = target.min()
+            if target.max() > _max:
+                _max = target.max()
+        print('target', _min, _max, 'priors', pred[2].min(), pred[2].max())
 
         # loss_start_time = time.time()
         loss_l, loss_c = criterion(pred, targets)
@@ -109,6 +122,8 @@ def train(epoch_idx):
 
         loss_loc += loss_l.detach().item() # TODO: loss_loc is inf, check loss layer
         loss_conf += loss_c.detach().item()
+        # print('Epoch %d[%d] loss_loc: %.6f loss_conf: %.6f' % (epoch_idx, idx, \
+        #                         loss_l.detach().item(), loss_c.detach().item()))
 
         if idx % args.display_interval == 0:
             print('Epoch %d[%d/%d] loss_loc: %.6f loss_conf: %.6f' \
@@ -121,7 +136,7 @@ def train(epoch_idx):
     
     print('Epoch %d loss_loc: %.6f loss_conf: %.6f' \
                 % (epoch_idx,\
-                loss_loc / args.display_interval, loss_conf / args.display_interval))
+                loss_loc, loss_conf))
 
 def test(epoch_idx):
     net.eval()
@@ -139,9 +154,11 @@ def test(epoch_idx):
             targets = [target.to(device) for target in targets]
 
             loc, conf, priors = net(images)
+            # loc: batch_size x num_priors x 4
+            # conf: batch_size x num_priors x num_classes (2)
+            # priors: num_priors x 4
 
             # additional eval module
-            outputs = detect_output(loc, F.softmax(conf, dim=-1), priors)
 
             # calculate loss
             loss_l, loss_c = criterion((loc, conf, priors), targets)
@@ -151,6 +168,11 @@ def test(epoch_idx):
             loss_conf += loss_c.detach().item()
             loss_total += loss.detach().item()
 
+            outputs = detect_output(loc, F.softmax(conf, dim=2), priors)
+            
+            # print('Test Epoch %d[%d] loss_loc: %.6f loss_conf: %.6f' % (epoch_idx, i, \
+            #                     loss_l.detach().item(), loss_c.detach().item()))
+
             # display and save tested images
             if (i + 1) * args.test_batch_size <= num_annotated_image:
                 for j, (image, output) in enumerate(zip(original_images, outputs)):
@@ -159,7 +181,7 @@ def test(epoch_idx):
                                             'epoch%d_%03d.jpg' % (epoch_idx, i * args.test_batch_size + j))
                     output_np = output[1].detach().numpy()
                     p = 0
-                    while (output_np[p, 0] > 0.6):
+                    while (output_np[p, 0] > 0.3):
                         xmin = int(output_np[p, 1] * height)
                         ymin = int(output_np[p, 2] * width)
                         xmax = int(output_np[p, 3] * height)
@@ -169,6 +191,8 @@ def test(epoch_idx):
                         cv2.putText(image, '%.2f (%d, %d, %d, %d)' % (output_np[p, 0], xmin, ymin, xmax, ymax), (xmin, ymin), \
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), thickness=1)
                         p += 1
+                        if p >= output_np.shape[0]:
+                            break
                     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
                     cv2.imwrite(filename, image)
 
@@ -176,9 +200,9 @@ def test(epoch_idx):
                     # TOO much bbox annotation!!! Need check correctness (LR should be smaller)
         
         print('Test Epoch %d: loss_loc: %.6f loss_conf: %.6f loss_total %.6f' \
-            % (epoch_idx, loss_loc / len(test_dataloader),
-                loss_conf / len(test_dataloader),
-                loss_total / len(test_dataloader)))
+            % (epoch_idx, loss_loc,
+                loss_conf,
+                loss_total))
 
 
 if __name__ == "__main__":

@@ -53,13 +53,16 @@ def collate(batch):
 
 class ICDARLabel(object):
 
-    def __init__(self, idx, string):
+    def __init__(self, idx, string, phase):
         super(ICDARLabel, self).__init__()
         elems = string.strip().split()
         self.idx = idx
         self.bbox = []
         for i in range(4):
-            self.bbox.append(int(elems[i]))
+            if phase == 'train':
+                self.bbox.append(int(elems[i]))
+            elif phase == 'test':
+                self.bbox.append(int(elems[i][:-1]))
         self.text = elems[4]
     
     def __str__(self):
@@ -276,7 +279,8 @@ class ICDARDataset(torch.utils.data.Dataset):
         gt_file = os.path.join(self.gt_path, self.gt_list[idx])
         with open(gt_file) as f:
             gt_int = f.readlines()
-        gt = [ICDARLabel(self.gt_list[idx], x) for x in gt_int]
+        # gt = [ICDARLabel(self.gt_list[idx], x, self.phase) for x in gt_int]
+        gt = [ICDARLabel(self.gt_list[idx], x, 'train') for x in gt_int]
         boxes = np.array([x.bbox for x in gt], dtype=np.float32)
         
         # if self.phase == 'train':
@@ -290,7 +294,6 @@ class ICDARDataset(torch.utils.data.Dataset):
         elif self.phase == 'test':
             return 'test', original_image, image_t, boxes_t
     
-
 
 if __name__ == "__main__":
     dataset = ICDARDataset('../data/Small_Images', '../data/Small_GT', 300, 300, 'train')

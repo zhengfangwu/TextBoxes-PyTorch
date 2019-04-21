@@ -105,7 +105,7 @@ def match(gt, priors, threshold, variances, device):
 
 def log_sum_exp(x):
     x_max = x.max()
-    return torch.log(torch.sum(torch.exp(x - x_max), dim=2, keepdim=False)) + x_max
+    return torch.log(torch.sum(torch.exp(x - x_max), dim=1, keepdim=True)) + x_max
 
 def init_weights(m):
     if isinstance(m, torch.nn.Conv2d):
@@ -142,10 +142,10 @@ def initialize(net, load_vgg):
         init_conv_layer(net.conv5_2, vgg[26])
         init_conv_layer(net.conv5_3, vgg[28])
 
-        freeze_conv_layer(net.conv1_1)
-        freeze_conv_layer(net.conv1_2)
-        freeze_conv_layer(net.conv2_1)
-        freeze_conv_layer(net.conv2_2)
+        # freeze_conv_layer(net.conv1_1)
+        # freeze_conv_layer(net.conv1_2)
+        # freeze_conv_layer(net.conv2_1)
+        # freeze_conv_layer(net.conv2_2)
 
 def save_checkpoint(epoch_idx, checkpoint_folder, net, optimizer):
     """ A comprehensive checkpoint saving function

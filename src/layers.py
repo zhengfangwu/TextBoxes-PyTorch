@@ -139,6 +139,22 @@ class MultiBoxLoss(nn.Module):
 
         loc_data, conf_data, priors = predictions
 
+        # ################################
+        # import matplotlib.pyplot as plt
+        # import numpy as np
+        # import cv2
+        # for prior in priors:
+        #     tmp_img = np.zeros((300, 300, 3), dtype=np.uint8)
+        #     xmin = int(prior[0].item() * 300)
+        #     ymin = int(prior[1].item() * 300)
+        #     xmax = int(prior[2].item() * 300)
+        #     ymax = int(prior[3].item() * 300)
+        #     cv2.rectangle(tmp_img, (xmin, ymin), (xmax, ymax), (255, 0, 0))
+        #     print('(%d, %d) --> (%d, %d)' % (xmin, ymin, xmax, ymax))
+        #     # plt.imshow(tmp_img)
+        #     # plt.show()
+        #     input()
+
         # print(len(targets))
         # print('==== priors: min:', priors.min(), 'max:', priors.max())
         # print('==== targets: ', end='')
@@ -167,25 +183,24 @@ class MultiBoxLoss(nn.Module):
 
         # Localization loss
         # print('pos', pos.size())
-        pos_idx = pos.unsqueeze(2).expand(batch_size, num_priors, 4)
+        pos_idx = pos.unsqueeze(pos.dim()).expand_as(loc_data)
         # print('pos_idx', pos_idx.size())
         loc_p = loc_data[pos_idx].view(-1, 4)
         # print('=========== loc_p max', loc_p.max())
         loc_t = loc_t[pos_idx].view(-1, 4)
         # print('=========== loc_t max', loc_t.max())
-        loss_loc = F.smooth_l1_loss(loc_p, loc_t)
+        loss_loc = F.smooth_l1_loss(loc_p, loc_t, size_average=False)
+
+        batch_conf = conf_data.view(-1, self.num_classes)
+        loss_c = (log_sum_exp(batch_conf) - batch_conf.gather(1, conf_t.view(-1, 1))).view(batch_size, -1)
 
         # Hard negative mining
-        score = log_sum_exp(conf_data) # batch_size * num_priors
-        score -= (conf_data.view(batch_size, -1, self.num_classes)\
-                .gather(2, conf_t.view(batch_size, -1, 1))).squeeze(2)
-        # print('score max:', score.max(), 'score min:', score.min())
+        loss_c[pos] = 0 # batch_size * num_priors
+        loss_c = loss_c.view(batch_size, -1)
+        _, loss_idx = loss_c.sort(1, descending=True)
+        _, idx_rank = loss_idx.sort(1) # batch_size * num_priors
 
-        score[pos] = 0
-        _, score_idx = score.sort(1, descending=True) # batch_size * num_priors
-        _, idx_rank = score_idx.sort(1) # batch_size * num_priors
-
-        num_pos = pos.sum(1, keepdim=True) # [batch_size]
+        num_pos = pos.long().sum(1, keepdim=True) # [batch_size]
         num_neg = torch.clamp(self.neg_ratio * num_pos, max=pos.size(1) - 1) # [batch_size]
         neg = idx_rank < num_neg.expand_as(idx_rank) # batch_size * num_priors
 
@@ -228,18 +243,22 @@ class DetectionOutput(nn.Module):
         assert loc_data.size(1) == num_priors, "loc_data should have the same number of priors"
         assert conf_data.size(1) == num_priors, "conf_data should have the same number of priors"
 
-        conf_pred = conf_data.transpose(2, 1).contiguous() # batch x num_classes (2) x num_priors
+        conf_pred = conf_data.transpose(2, 1) # batch x num_classes (2) x num_priors
 
         output = torch.zeros(batch_size, self.num_classes, self.topk, 5)
         # print('output', output.size())
 
-        for i, (loc, conf) in enumerate(zip(loc_data, conf_pred)):
-            decode_bbox = decode(loc, priors, self.variances) # num_priors * 4 (xmin, ymin, xmax, ymax)
+        for i in range(batch_size):
+            # print(loc[1, :2].max())
+            decode_bbox = decode(loc_data[i], priors, self.variances) # num_priors * 4 (xmin, ymin, xmax, ymax)
+            conf_scores = conf_pred[i].clone()
+            # print(decode_bbox.max())
+            # TODO: decode_bbox larger than 1
             
             # TextBoxes localization only have two labels (background and text)
-            conf_mask = conf[1].gt(self.conf_threshold) # num_priors
-            scores = conf[1][conf_mask]
-            if scores.numel() == 0:
+            conf_mask = conf_scores[1].gt(self.conf_threshold) # num_priors
+            scores = conf_scores[1][conf_mask]
+            if scores.size(0) == 0:
                 continue
             bbox_mask = conf_mask.unsqueeze(1).expand_as(decode_bbox) # num_priors * 4
             bbox = decode_bbox[bbox_mask].view(-1, 4)
@@ -250,13 +269,15 @@ class DetectionOutput(nn.Module):
         
         # TODO: error here, to be fixed
         flat = output.view(batch_size, -1, 5) # batch x (2*topk) x 5
-        # print('flat', flat.size())
+        # print('flat', flat.size()) # 1 x 10 x 5
         _, idx = flat[:, :, 0].sort(1, descending=True)
         _, rank = idx.sort(1)
-        # print('rank', rank.size())
+        # print('rank', rank.size()) # 1 x 10
         # print((flat == 0).sum(), end=' ')
         # print((rank < self.topk).sum())
         flat[(rank < self.topk).unsqueeze(-1).expand_as(flat)].fill_(0)
+        # TODO: seems no value is changed
+
         # print((flat == 0).sum())
         # output = flat[(rank < self.topk).unsqueeze(-1).expand_as(flat)].fill_(0)
         # print(output.size()) # 1000
